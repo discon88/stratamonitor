@@ -22,6 +22,8 @@ It is a [Tauri 2](https://tauri.app) app. Rust owns the network calls and the wi
 
 ## What the card shows
 
+<img width="335" height="195" alt="Strata Monitor" src="https://github.com/user-attachments/assets/8cd5fae0-64a0-4702-8c2a-4a6ebbbab757" />
+
 Five readouts, nothing else:
 
 | Line | Shows |
