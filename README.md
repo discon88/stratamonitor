@@ -1,10 +1,12 @@
+This is vibe coded with Strata - Qwen3.8-flash-next-coder-iq1_m (vision model excluded) and Pi Agent 1.2
+
 I have no coding experience but have been having fun playing with [Strata](https://github.com/Niko1221/Strata) and wanted a way to monitor it without it taking up a Twitch watching monitor.
 
 All decisions were made by the AI except the requirement to have no title bar on the app. You can right click on the app to bring up the config window.
 
 I also have no experience with git, I'm just putting the project here for others to use.
 
-Hardware:
+Hardware (the server it watches; the app itself runs on Windows):
 
 - Proxmox 9 LXC container running Debian 13 (trixie)
 - 24 cores Xeon 5317 @ 3.00GHz
