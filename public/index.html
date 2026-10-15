@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StrataMonitor</title>
+<link rel="stylesheet" href="./css/tokens.css">
+<link rel="stylesheet" href="./css/hud.css">
+<script type="module" src="./js/view.js"></script>
+<script type="module" src="./js/hud.js"></script>
+</head>
+<body>
+  <!-- The five readouts, in this order and nothing else: the model line shows
+       the state word AND the human status line; progress is counts plus a
+       percentage (no bar); Speed is DECODE then its number then PREFILL then
+       its number; Load is GPU then its number then CPU then its number;
+       Context is the percentage and the counts (no bar). The error line is
+       hidden unless a payload carries one. Data placeholders are "…" (never
+       written yet) so they cannot be confused with "–", which means the
+       server has no value. -->
+  <div id="hud">
+    <div class="row row-state">
+      <span class="label">Model</span>
+      <span id="state-word">…</span>
+      <span id="state-status">…</span>
+      <i id="state-dot"></i>
+    </div>
+
+    <div class="row row-progress">
+      <span class="label">Progress</span>
+      <span id="progress-detail">…</span>
+    </div>
+
+    <div class="row row-speed">
+      <span class="inline-label">Decode</span>
+      <b id="speed-decode">…</b>
+      <span class="unit">tok/s</span>
+      <span class="inline-label">Prefill</span>
+      <b id="speed-prefill">…</b>
+      <span class="unit">tok/s</span>
+    </div>
+
+    <div class="row row-load">
+      <span class="label">Load</span>
+      <span class="inline-label">GPU</span>
+      <b id="gpu-load">…</b>
+      <span class="unit">%</span>
+      <span class="inline-label">CPU</span>
+      <b id="cpu-load">…</b>
+      <span class="unit">%</span>
+    </div>
+
+    <div class="row row-ctx">
+      <span class="label">Context</span>
+      <span id="ctx-pct">…</span>
+      <span id="ctx-detail">…</span>
+    </div>
+
+    <button id="pin-button">Always on top</button>
+    <div id="error-line" hidden></div>
+  </div>
+</body>
+</html>

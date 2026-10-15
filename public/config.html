@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StrataMonitor — settings</title>
+<link rel="stylesheet" href="./css/tokens.css">
+<link rel="stylesheet" href="./css/config.css">
+</head>
+<body>
+  <!-- Left column: the address, the key, the pin, and the three actions. Right
+       column: the 3x3 position grid, with the centre a dashed non-button cell
+       and the square you are currently in filled. Nothing scrolls. -->
+  <div id="panel">
+    <div class="left">
+      <div class="field">
+        <span class="label">Server address</span>
+        <input id="f-base-url" type="text" spellcheck="false">
+      </div>
+
+      <div class="field">
+        <span class="label">API key</span>
+        <input id="f-api-key" type="text" spellcheck="false">
+        <span class="note" id="n-api-key"></span>
+      </div>
+
+      <div class="field field-pin">
+        <span class="label">Always on top</span>
+        <input id="f-always-on-top" type="checkbox">
+      </div>
+
+      <div class="actions">
+        <button id="save-button">Save</button>
+        <button id="test-button">Test connection</button>
+        <button id="done-button">Done</button>
+      </div>
+      <div id="test-result"></div>
+    </div>
+
+    <div class="right">
+      <span class="label">Position</span>
+      <div class="grid" id="f-position">
+        <button id="pos-top-left" title="top left"></button>
+        <button id="pos-top-middle" title="top middle"></button>
+        <button id="pos-top-right" title="top right"></button>
+        <button id="pos-middle-left" title="middle left"></button>
+        <span class="cell-center"></span>
+        <button id="pos-middle-right" title="middle right"></button>
+        <button id="pos-bottom-left" title="bottom left"></button>
+        <button id="pos-bottom-middle" title="bottom middle"></button>
+        <button id="pos-bottom-right" title="bottom right"></button>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="./js/config.js"></script>
+</body>
+</html>

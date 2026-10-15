@@ -1,0 +1,56 @@
+{
+  "identifier": "dev.strata.monitor",
+  "productName": "StrataMonitor",
+  "version": "0.1.0",
+  "build": {
+    "frontendDist": "../public"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "security": {
+      "csp": null
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "StrataMonitor",
+        "url": "index.html",
+        "width": 340,
+        "height": 200,
+        "minWidth": 240,
+        "minHeight": 140,
+        "transparent": true,
+        "decorations": false,
+        "shadow": false,
+        "skipTaskbar": true,
+        "resizable": true,
+        "create": true
+      },
+      {
+        "label": "config",
+        "title": "StrataMonitor Settings",
+        "url": "config.html",
+        "width": 460,
+        "height": 300,
+        "x": 120,
+        "y": 120,
+        "visible": false,
+        "closable": true,
+        "minimizable": false,
+        "maximizable": false,
+        "skipTaskbar": true,
+        "create": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "../icons/icon-32.png",
+      "../icons/icon-128.png",
+      "../icons/icon-128@2x.png",
+      "../icons/icon.ico"
+    ]
+  }
+}

@@ -1,0 +1,25 @@
+/* tokens.css — upstream Strata's dark palette, verbatim values. The light
+   `:root` block is dropped: this page sets data-theme="dark" and nothing else. */
+
+[data-theme="dark"] {
+  --bg: #0e1113;
+  --surface: #161a1d;
+  --surface-2: #1d2226;
+  --line: #2a3036;
+  --ink: #eef1f3;
+  --ink-muted: #8e979f;
+  --accent: #34d399;
+  --info: #3aa9ff;
+  --warn: #f5b53d;
+  --danger: #ff5a6e;
+}
+
+/* Outfit is upstream's font. The local copy is not vendored in this repo, so
+   the browser falls through to the system stack; nothing here may depend on
+   Outfit's metrics (see the ledger ruling). */
+@font-face {
+  font-family: "Outfit";
+  src: url("../fonts/Outfit.woff2") format("woff2");
+  font-weight: 300 700;
+  font-display: swap;
+}

@@ -1,0 +1,151 @@
+/* config.css — the settings panel. Everything has to fit inside the declared
+   window (460x300) with no scrolling, which is what the compact rows, the
+   22 px grid cells and the single action row buy. */
+
+html, body { margin: 0; padding: 0; background: var(--bg); }
+
+#panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  padding: 12px 14px;
+  box-sizing: border-box;
+  overflow: hidden;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-family: "Outfit", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+/* The settings and actions live on the left; the position grid is its own
+   column on the right. */
+.left {
+  flex: 1;
+}
+
+.right {
+  width: 96px;
+}
+
+.field { margin-bottom: 8px; }
+
+.label {
+  display: block;
+  font-size: 11px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+  margin-bottom: 4px;
+}
+
+input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--surface-2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.note {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-muted);
+  margin-top: 4px;
+}
+
+/* The pin row: the tick box sits to the right of its text, on the same line,
+   which is the only field that reads as a row - the address and the key need
+   their value on its own line. */
+.field-pin {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.field-pin .label { margin-bottom: 0; }
+
+/* The tick box is filled with the same accent the position grid uses for the
+   square you are in, so "on" reads as the one highlight colour in the panel. */
+input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+/* The 3x3 position grid. The centre cell is not a button: the HUD is never
+   parked in the middle of the screen. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 22px);
+  grid-template-rows: repeat(3, 22px);
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.grid button, .cell-center {
+  width: 22px;
+  height: 22px;
+  box-sizing: border-box;
+  border-radius: 5px;
+}
+
+.grid button {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+
+/* The square you are currently in is filled with the accent. */
+.grid button.cell-current {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* A square you have clicked but not saved yet is outlined, so "where you are"
+   and "where you are going" read differently. */
+.grid button.cell-selected {
+  background: var(--surface-2);
+  border: 2px solid var(--accent);
+}
+
+.cell-center {
+  background: transparent;
+  border: 1px dashed var(--line);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.actions button {
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+#test-result {
+  font-size: 12px;
+  color: var(--ink-muted);
+  margin-top: 8px;
+}
+
+#test-result.good { color: var(--accent); }
+#test-result.bad { color: var(--danger); }

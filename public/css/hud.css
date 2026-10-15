@@ -1,0 +1,125 @@
+/* hud.css — the floating card. The page itself is transparent so the window
+   reads as a card on the desktop, not a rectangle. It has to stay legible at
+   340x200 and at the 240x140 minimum, which is what the small type sizes and
+   the tight line-heights buy. */
+
+html, body { background: transparent; margin: 0; padding: 0; }
+body {
+  font-family: "Outfit", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--ink);
+  overflow: hidden;
+}
+
+#hud {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  box-sizing: border-box;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.row { display: flex; flex-direction: column; gap: 2px; }
+.row-state, .row-progress, .row-speed, .row-load, .row-ctx { flex-direction: row; flex-wrap: wrap; align-items: center; }
+
+.label {
+  font-size: 12px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+  margin-right: 12px;
+}
+
+/* The value type has to fit inside its row: the card is 340x200 and the page
+   clips overflow, so type taller than the row reads as a white sliver rather
+   than a number. */
+.value, b { font-size: 17px; line-height: 1.15; font-weight: 600; }
+#state-word { font-size: 18px; line-height: 1.15; font-weight: 600; margin-right: 12px; }
+#state-status { font-size: 12px; color: var(--ink); }
+
+/* Progress and context data read exactly like the Speed and Load numbers:
+   same size, same weight, same colour. */
+#progress-detail, #ctx-pct, #ctx-detail { font-size: 17px; line-height: 1.15; font-weight: 600; color: var(--ink); }
+/* The percentage and the total window need clear space between them. */
+#ctx-pct { margin-right: 14px; }
+
+/* Labels that sit inside a line of data (DECODE, PREFILL, GPU, CPU) rather
+   than heading the row, and the unit that follows a number. */
+.inline-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+  margin-right: 8px;
+}
+
+.unit {
+  font-size: 11px;
+  color: var(--ink-muted);
+  margin-left: 6px;
+  margin-right: 10px;
+}
+
+/* tone classes, driven by view.js's tone */
+.tone-dim { color: var(--ink-muted); opacity: 0.55; }
+.tone-muted { color: var(--ink-muted); }
+.tone-warn { color: var(--warn); }
+
+#state-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent);
+  margin-left: 6px;
+}
+#state-dot.tone-dim { background: var(--line); }
+#state-dot.tone-warn { background: var(--warn); }
+#state-dot.tone-muted { background: var(--ink-muted); }
+
+/* No readout has a bar: progress and context are the counts and the
+   percentage, so nothing here is sized by the script. */
+
+// The bar on the card **is** the always-on-top control: click it to toggle.
+// On is the accent fill; off is the muted label colour, so the control stays
+// visible rather than vanishing into a transparent pill. The text is the card
+//'s own dark colour on either fill, which is the only reading that stays
+// legible on both the green and the grey.
+#pin-button {
+  font-size: 12px;
+  color: var(--bg);
+  background: var(--ink-muted);
+  border: 1px solid var(--ink-muted);
+  border-radius: 8px;
+  padding: 4px 8px;
+}
+#pin-button.pin-on { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+#pin-button.pin-off { color: var(--bg); background: var(--ink-muted); border-color: var(--ink-muted); }
+
+/* the right-click menu, kept inside the card so its buttons are clickable */
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  z-index: 999;
+}
+.menu-item {
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 10px;
+}
+.menu-item.on-top { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+
+#error-line { font-size: 13px; color: var(--danger); }
