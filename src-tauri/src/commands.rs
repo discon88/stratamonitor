@@ -99,9 +99,6 @@ pub fn close_app(app: tauri::AppHandle) {
   }
 }
 
-// Task 8 is where the config window is actually created (it is `create: false`
-// in the config so it does not appear at launch). Until then this only raises
-// the window if it already exists, so the menu item is wired but a no-op.
 // What `test_connection` reports back to the config window. Field names stay
 // snake_case so the JS reads exactly the shape the spec names.
 #[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Debug)]
@@ -152,9 +149,15 @@ pub fn report(health_code: u16, health_text: String, metrics_code: u16) -> Conne
 // matches upstream's fixed 1 s), so they keep whatever the file already holds
 // rather than being reset. Re-pinning at the new anchor makes the move visible
 // without restarting.
+//
+// The return value is deliberately **not** the Config struct: Config carries
+// `api_key`, and returning it would hand the key to the webview on every Save.
+// The panel's rule is that the key never crosses to the page, so what comes
+// back is a summary with a boolean for the key.
 #[tauri::command]
-pub fn save_config(app: tauri::AppHandle, base_url: String, api_key: String, position: String, always_on_top: bool) -> Config {
+pub fn save_config(app: tauri::AppHandle, base_url: String, api_key: String, position: String, always_on_top: bool) -> SavedSummary {
   let old = config_for(&app);
+  let saved = SavedSummary { base_url: base_url.clone(), position: position.clone(), always_on_top: always_on_top, api_key_set: api_key != "" };
   let cfg = Config { base_url: base_url, api_key: api_key, poll_ms: old.poll_ms, margin_px: old.margin_px, scale: old.scale, position: position.clone(), always_on_top: always_on_top };
   let file = config_file(&app);
   match save_to(&file, &cfg) {
@@ -162,7 +165,18 @@ pub fn save_config(app: tauri::AppHandle, base_url: String, api_key: String, pos
     Ok(_) => {},
   }
   pin_to_anchor(&app, position, cfg.margin_px);
-  cfg
+  saved
+}
+
+// What Save reports back to the panel: the settings it wrote, and a boolean for
+// the key instead of the key.
+#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedSummary {
+  pub base_url: String,
+  pub position: String,
+  pub always_on_top: bool,
+  pub api_key_set: bool,
 }
 
 // The config a grid click writes: the anchor changes and every other setting
@@ -267,7 +281,7 @@ pub fn hide_config_window(app: tauri::AppHandle) {
 #[cfg(test)]
 mod tests {
   use serde_json;
-  use crate::commands::{report, ConnectionReport, Health, with_position};
+  use crate::commands::{report, ConnectionReport, Health, with_position, SavedSummary};
   use crate::configstore::{Config, defaults, save_to, load_from};
   use crate::hudview::{ErrorKind};
   use std::path::{Path};
@@ -337,5 +351,22 @@ mod tests {
     assert_eq!(back.poll_ms, 250);
     assert_eq!(back.always_on_top, false);
     assert_eq!(back.position, "bottom-left", "the anchor survives a round trip");
+  }
+
+  // The panel's rule, pinned: Save writes the key to the file but must never
+  // hand it back to the page. What comes back is a boolean.
+  #[test]
+  fn the_saved_summary_carries_no_key() {
+    let secret = "s3cr3t-value";
+    let saved = SavedSummary { base_url: "http://127.0.0.1:8080".to_string(), position: "bottom-left".to_string(), always_on_top: true, api_key_set: true };
+    let json = serde_json::to_string(&saved);
+    match json {
+      Err(_) => { panic!("the summary must serialize"); },
+      Ok(text) => {
+        assert!(!text.contains(secret), "Save must not hand the key to the page");
+        assert!(!text.contains("\"api_key\""), "nor the file's snake_case spelling of the field");
+        assert!(text.contains("\"apiKeySet\":true"), "the key state is the boolean that stands in for it");
+      },
+    }
   }
 }

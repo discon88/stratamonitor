@@ -7,6 +7,7 @@ use serde_json;
 use tauri::Emitter;
 use tauri::Manager;
 use std::sync::{Mutex};
+use std::time::{Duration};
 use std::path::{PathBuf};
 use crate::configstore::{Config, load_from};
 use crate::hudview::{from_snapshot, from_status, ErrorKind, HudView, empty_view};
@@ -15,6 +16,13 @@ use crate::windowpin::{ensure_pinned};
 // After this many consecutive failed polls the HUD says "Server not reachable";
 // below it a blip changes nothing on screen (the spec's Review Focus item 2).
 const UNREACHABLE_AFTER_FAILURES: u32 = 3;
+
+// A poll must not outlive the poll interval by a wide margin. The blocking
+// client's own default is 30 seconds, which is half a minute of frozen HUD when
+// a server accepts the connection and then stalls - longer than the counter can
+// even reach "unreachable". These two bounds keep one bad poll cheap.
+const POLL_TIMEOUT_MS: u32 = 2000;
+const CONNECT_TIMEOUT_MS: u32 = 1000;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum OutcomeKind {
@@ -77,6 +85,31 @@ fn trim_trailing_slash(value: &str) -> String {
 static last_view: Mutex<Option<HudView>> = Mutex::new(None);
 static failure_count: Mutex<u32> = Mutex::new(0);
 
+// One HTTP client for the whole run. Building a client per poll throws away the
+// connection pool, the DNS cache and the TLS setup every single time, which at
+// one poll a second is the app's largest avoidable cost.
+static http_client: Mutex<Option<reqwest::blocking::Client>> = Mutex::new(None);
+
+pub fn client_for() -> reqwest::blocking::Client {
+  let mut slot = http_client.lock().unwrap();
+  match &*slot {
+    Some(ref built) => { built.clone() },
+    None => {
+      let builder = reqwest::blocking::ClientBuilder::new()
+        .timeout(Duration::from_millis(POLL_TIMEOUT_MS as u64))
+        .connect_timeout(Duration::from_millis(CONNECT_TIMEOUT_MS as u64));
+      let built = match builder.build() {
+        // A rejected builder is not worth dying over: the plain client still
+        // answers, it just carries the 30 second default timeout.
+        Err(_) => reqwest::blocking::Client::new(),
+        Ok(client) => client,
+      };
+      *slot = Some(built.clone());
+      built
+    },
+  }
+}
+
 pub fn config_file(app: &tauri::AppHandle) -> PathBuf {
   let dir = app.path().app_config_dir();
   match dir {
@@ -95,7 +128,7 @@ pub fn config_for(app: &tauri::AppHandle) -> Config {
 // One GET, returned as (status, body text). Status 0 is the sentinel for
 // "no response at all": connection refused, timeout, DNS miss.
 pub fn http_get(url: &str, api_key: &str) -> (u16, String) {
-  let client = reqwest::blocking::Client::new();
+  let client = client_for();
   let built = client.get(url);
   let built = if api_key == "" {
     built

@@ -382,8 +382,6 @@ pub fn model_name(snap: &Snapshot) -> String {
 #[cfg(test)]
 mod tests {
   use serde_json;
-  use std::fs;
-  use std::path::{PathBuf};
   use crate::hudview::{StateWord, ErrorKind, from_snapshot, from_status};
 
   fn fixture(text: &str) -> serde_json::Value {
@@ -462,53 +460,6 @@ mod tests {
     assert_eq!(view.progress.tokens, Some(166), "the newest request, not the oldest");
     assert_eq!(view.speed.decode, Some(30.3));
     assert_eq!(view.context.used, 66870);
-  }
-
-  // Reads the real live payload (fetched from the LAN server into the repo) and
-  // checks the idle fallbacks produce numbers rather than dashes, then writes
-  // the HudView JSON out so the JS side can be checked against the same data.
-  #[test]
-  fn live_payload_shows_last_request_numbers() {
-    let dir = "C:\\AgenticCoding\\StrataMon\\.superpowers\\sdd\\2026-10-13-stratamonitor";
-    let in_path = PathBuf::from(format!("{dir}\\live-metrics.json"));
-    let raw = fs::read_to_string(&in_path);
-    match raw {
-      Err(_) => {
-        // The fixture is the real LAN payload, fetched by hand into the repo;
-        // without it there is nothing to check, and the suite must stay green
-        // rather than fail on a dev-only file.
-      },
-      Ok(text) => {
-        let parsed = serde_json::from_str(&text);
-        match parsed {
-          Err(_) => {
-          },
-          Ok(value) => {
-            let view = from_snapshot(value);
-            assert!(view.progress.tokens.is_some(), "idle must fall back to the last request's output tokens");
-            assert!(view.speed.decode.is_some(), "idle must fall back to the last request's decode rate");
-            assert!(view.speed.prefill.is_some(), "idle must derive prefill from the last request");
-            assert!(view.context.used > 0, "idle must fall back to the last request's context");
-            assert!(view.load.gpu.is_some(), "hardware load is live even when the model is idle");
-            let json = serde_json::to_string(&view);
-            match json {
-              Err(_) => {
-              },
-              Ok(text_json) => {
-                let out_path = PathBuf::from(format!("{dir}\\live-view.json"));
-                let written = fs::write(&out_path, text_json);
-                match written {
-                  Err(_) => {
-                  },
-                  Ok(_) => {
-                  },
-                }
-              },
-            }
-          },
-        }
-      },
-    }
   }
 
   #[test]

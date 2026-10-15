@@ -85,11 +85,11 @@ body {
 /* No readout has a bar: progress and context are the counts and the
    percentage, so nothing here is sized by the script. */
 
-// The bar on the card **is** the always-on-top control: click it to toggle.
-// On is the accent fill; off is the muted label colour, so the control stays
-// visible rather than vanishing into a transparent pill. The text is the card
-//'s own dark colour on either fill, which is the only reading that stays
-// legible on both the green and the grey.
+/* The bar on the card **is** the always-on-top control: click it to toggle.
+   On is the accent fill; off is the muted label colour, so the control stays
+   visible rather than vanishing into a transparent pill. The text is the card's
+   own dark colour on either fill, which is the only reading that stays legible
+   on both the green and the grey. */
 #pin-button {
   font-size: 12px;
   color: var(--bg);

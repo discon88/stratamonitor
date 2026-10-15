@@ -89,10 +89,11 @@ function collect() {
 
 async function save() {
   const saved = await tauri.invoke("save_config", collect());
-  // The returned Config is serialised by Rust with no rename, so its keys are
-  // snake_case - that is the file's spelling, not the command's.
+  // What comes back is a SavedSummary, not the Config struct: Config carries
+  // the API key, and the panel's rule is that the key never crosses to the page.
+  // The keys here are camelCase because that struct asks for that spelling.
   const line = field("test-result");
-  line.textContent = "saved: " + saved.base_url + " · " + saved.position + " · pinned " + saved.always_on_top;
+  line.textContent = "saved: " + saved.baseUrl + " · " + saved.position + " · pinned " + saved.alwaysOnTop + " · key " + (saved.apiKeySet ? "set" : "none");
   line.className = "";
   await load_current();
 }
@@ -148,9 +149,9 @@ if (typeof window !== "undefined") {
     test();
   });
 
-  // The window is declared `closable: false`, so this is how the panel is
-  // dismissed: hide, which keeps the window and its webview alive for the next
-  // reveal (closing destroys it, and a later show() then renders a blank page).
+  // The window is closable now, so the title-bar X is live: that destroys the
+  // window, and the right-click menu's Config rebuilds it. Done hides it instead,
+  // which keeps the page alive for the next reveal without a rebuild.
   field("done-button").addEventListener("click", function () {
     tauri.invoke("hide_config_window");
   });
