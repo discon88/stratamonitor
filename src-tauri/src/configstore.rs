@@ -104,7 +104,7 @@ mod tests {
   fn load_save_round_trip() {
     let file = test_dir("round_trip").join("config.json");
     let want = Config {
-      base_url: "http://192.168.1.68:8080".to_string(),
+      base_url: "http://127.0.0.1:8080".to_string(),
       api_key: "secret-value".to_string(),
       poll_ms: 250,
       margin_px: 30,
@@ -153,7 +153,7 @@ mod tests {
   fn key_is_not_written_to_the_log() {
     let file = test_dir("key_log").join("config.json");
     let cfg = Config {
-      base_url: "http://192.168.1.68:8080".to_string(),
+      base_url: "http://127.0.0.1:8080".to_string(),
       api_key: "super-secret".to_string(),
       poll_ms: 1000,
       margin_px: 12,

@@ -1,0 +1,7 @@
+# Text is stored LF in the repo; checkout gets the platform's endings.
+# This is what keeps a Linux or macOS checkout from churning every file.
+* text=auto
+
+# The icons are not text, whatever their extension suggests.
+*.png binary
+*.ico binary
