@@ -1,6 +1,20 @@
+I have no coding experience but have been having fun playing with [Strata](https://github.com/Niko1221/Strata) and wanted a way to monitor it without it taking up a Twitch watching monitor.
+
+All decisions were made by the AI except the requirement to have no title bar on the app. You can right click on the app to bring up the config window.
+
+I also have no experience with git, I'm just putting the project here for others to use.
+
+Hardware:
+
+- Proxmox 9 LXC container running Debian 13 (trixie)
+- 24 cores Xeon 5317 @ 3.00GHz
+- 64GB DDR4 3200 MT/s
+- Nvidia 3070 8GB
+- 2TB Sata SSD (4 drive ZFS)
+
 # StrataMonitor
 
-A small always-on-top HUD for Windows that reads a Strata server's `/health` and `/metrics` and shows the current state of the model: what it is doing, how fast it is going, how loaded the GPUs are, and how full the context window is.
+A small always-on-top HUD for Windows that reads a [Strata](https://github.com/Niko1221/Strata) server's `/health` and `/metrics` and shows the current state of the model: what it is doing, how fast it is going, how loaded the GPUs are, and how full the context window is.
 
 It is a [Tauri 2](https://tauri.app) app. Rust owns the network calls and the window placement; the webview only renders. The card is a real, borderless, transparent window — it sits above the desktop and above other windows, and it has no title bar.
 
