@@ -6,14 +6,27 @@ use tauri::WindowEvent;
 use tauri::Manager;
 use tauri::PhysicalPosition;
 use std::sync::{Mutex};
-use crate::poller::{config_for, config_file};
+use std::time::{Instant};
+use crate::poller::{config_for, config_file, invalidate_config_cache, recover};
 use crate::configstore::{defaults, save_to, is_first_run};
 
 // Re-pinning is triggered by the window's own events, and moving the window is
 // itself a Moved event. Without this guard the handler recurses until the
 // stack gives up.
-static repin_busy: Mutex<bool> = Mutex::new(false);
-static pin_done: Mutex<bool> = Mutex::new(false);
+static REPIN_BUSY: Mutex<bool> = Mutex::new(false);
+static PIN_DONE: Mutex<bool> = Mutex::new(false);
+
+// A drag fires a Moved event per pixel step, and each one used to read the
+// config file and re-assert the topmost slot with a real off/on toggle. The
+// toggle is only needed once in a while, so it is rate-limited.
+const BUMP_THROTTLE_MS: u64 = 250;
+static LAST_BUMP: Mutex<Option<Instant>> = Mutex::new(None);
+
+// Re-pin placement is exact arithmetic, but Windows rounds window positions by
+// a pixel or two at non-integer scale factors. Treating anything within this
+// many pixels as "already at the anchor" keeps a settled window from firing a
+// set_position -> Moved -> set_position storm.
+const ANCHOR_TOLERANCE: i32 = 2;
 
 // ---------------------------------------------------------------------------
 // The pure part
@@ -25,7 +38,7 @@ static pin_done: Mutex<bool> = Mutex::new(false);
 // both in device pixels; `margin` is device pixels too, so a 12 px margin is
 // 12 px on a 1.5x display as well. An anchor name carries both halves, e.g.
 // "middle-left" is middle vertically and left horizontally.
-pub fn anchor_position(monitor: (i32, i32, u32, u32), outer: (u32, u32), anchor: String, margin: u32) -> (i32, i32) {
+pub fn anchor_position(monitor: (i32, i32, u32, u32), outer: (u32, u32), anchor: &str, margin: u32) -> (i32, i32) {
   let mon_x = monitor.0;
   let mon_y = monitor.1;
   let mon_w = monitor.2 as i32;
@@ -78,17 +91,19 @@ pub fn anchor_position(monitor: (i32, i32, u32, u32), outer: (u32, u32), anchor:
 // Step 6).
 // ---------------------------------------------------------------------------
 
-pub fn pin_to_anchor(app: &tauri::AppHandle, anchor: String, margin_px: u32) {
+pub fn pin_to_anchor(app: &tauri::AppHandle, anchor: &str, margin_px: u32) {
   let window = app.get_webview_window("main");
   match window {
     None => {},
     Some(w) => {
+      // The current monitor first; an empty answer or an error falls back to
+      // the primary monitor (`unwrap_or_default` is `None`).
       let monitor = match w.current_monitor() {
         Ok(maybe) => match maybe {
           Some(m) => Some(m),
-          None => match w.primary_monitor() { Ok(maybe2) => maybe2, Err(_) => None },
+          None => w.primary_monitor().unwrap_or_default(),
         },
-        Err(_) => match w.primary_monitor() { Ok(maybe2) => maybe2, Err(_) => None },
+        Err(_) => w.primary_monitor().unwrap_or_default(),
       };
       match monitor {
         None => {},
@@ -108,15 +123,23 @@ pub fn pin_to_anchor(app: &tauri::AppHandle, anchor: String, margin_px: u32) {
               let dw = device.width;
               let dh = device.height;
               let mp = margin_px;
-              let xy = anchor_position((wx, wy, ww, wh), (dw, dh), anchor.clone(), mp);
+              let xy = anchor_position((wx, wy, ww, wh), (dw, dh), anchor, mp);
               let ax = xy.0;
               let ay = xy.1;
-              let target = PhysicalPosition { x: ax, y: ay };
-              let moved = w.set_position(target);
-              match moved {
-                Err(_) => {},
-                Ok(_) => {},
+              // A window that is already at the anchor is left alone: set_position
+              // fires a Moved event, and the Moved handler calls back here, so a
+              // settled HUD used to re-position itself on every event of a drag.
+              let already_there = match w.outer_position() {
+                Err(_) => false,
+                Ok(current) => (current.x - ax).abs() <= ANCHOR_TOLERANCE && (current.y - ay).abs() <= ANCHOR_TOLERANCE,
+              };
+              if already_there {
+                return;
               }
+              let target = PhysicalPosition { x: ax, y: ay };
+              // A refused move is ignored: the next event re-pins, and the HUD
+              // stays where it is rather than jumping to an unknown spot.
+              let _ = w.set_position(target);
             },
           };
         },
@@ -133,16 +156,10 @@ pub fn bump_topmost(app: &tauri::AppHandle) {
   match window {
     None => {},
     Some(w) => {
-      let off = w.set_always_on_top(false);
-      match off {
-        Err(_) => {},
-        Ok(_) => {},
-      }
-      let on = w.set_always_on_top(true);
-      match on {
-        Err(_) => {},
-        Ok(_) => {},
-      }
+      // Tauri's set_always_on_top is idempotent, so this pair is what re-asserts
+      // the topmost slot; neither half reports anything worth acting on.
+      let _ = w.set_always_on_top(false);
+      let _ = w.set_always_on_top(true);
     },
   }
 }
@@ -159,19 +176,14 @@ pub fn first_run_setup(app: &tauri::AppHandle) {
     return;
   }
   let cfg = defaults();
-  match save_to(&file, &cfg) {
-    Err(_) => {},
-    Ok(_) => {},
-  }
+  let _ = save_to(&file, &cfg);
+  // The file just changed, so anything cached must go.
+  invalidate_config_cache();
   let window = app.get_webview_window("config");
   match window {
     None => {},
     Some(w) => {
-      let shown = w.show();
-      match shown {
-        Err(_) => {},
-        Ok(_) => {},
-      }
+      let _ = w.show();
     },
   }
 }
@@ -183,7 +195,7 @@ pub fn first_run_setup(app: &tauri::AppHandle) {
 // dialect's Builder hands that callback an `&App<R>`, not an AppHandle, so the
 // same work happens on the first poll instead — see the ledger ruling.
 pub fn ensure_pinned(app: &tauri::AppHandle) {
-  let mut done = pin_done.lock().unwrap();
+  let mut done = recover(&PIN_DONE);
   if *done {
     return;
   }
@@ -191,22 +203,61 @@ pub fn ensure_pinned(app: &tauri::AppHandle) {
   configure_hud_window(app);
 }
 
+// `ensure_pinned` configures the window exactly once. Reading the flag lets
+// poll_now skip the main-thread dispatch on every later poll instead of
+// queueing a closure that returns immediately.
+pub fn already_pinned() -> bool {
+  *recover(&PIN_DONE)
+}
+
 // The re-pin handler must respect the pin state: bumping topmost unconditionally
 // is what made "turn always on top off" impossible, because the next event put
 // the flag back on.
+//
+// Rate-limited because Moved fires per pixel step during a drag, and the bump is
+// two real window calls (off, then on).
 pub fn bump_if_pinned(app: &tauri::AppHandle) {
+  let mut last = recover(&LAST_BUMP);
+  let now = Instant::now();
+  match &*last {
+    Some(prev) if now.duration_since(*prev).as_millis() < BUMP_THROTTLE_MS as u128 => return,
+    _ => {},
+  }
+  *last = Some(now);
+  drop(last);
   let window = app.get_webview_window("main");
   match window {
     None => {},
     Some(w) => {
-      let current = match w.is_always_on_top() {
-        Err(_) => false,
-        Ok(value) => value,
-      };
+      // A failed query reads as "not on top", which is the safe default: only
+      // a window that really is raised gets bumped.
+      let current: bool = w.is_always_on_top().unwrap_or_default();
       if current {
-        bump_topmost(&app);
+        bump_topmost(app);
       }
     },
+  }
+}
+
+// The busy flag for the window event handler is cleared by a Drop guard rather
+// than at the end of the handler body. A panic part way through a re-pin would
+// otherwise leave the flag set for the rest of the run, and every later Moved,
+// Resized or Focus event would be ignored - the silent failure mode this file
+// is usually careful about.
+pub struct RepinGuard;
+
+pub fn try_enter() -> Option<RepinGuard> {
+  let mut busy = recover(&REPIN_BUSY);
+  if *busy {
+    return None;
+  }
+  *busy = true;
+  Some(RepinGuard)
+}
+
+impl Drop for RepinGuard {
+  fn drop(&mut self) {
+    *recover(&REPIN_BUSY) = false;
   }
 }
 
@@ -217,32 +268,43 @@ pub fn configure_hud_window(app: &tauri::AppHandle) {
   match window {
     None => {},
     Some(w) => {
-      let pinned = w.set_always_on_top(cfg.always_on_top);
-      match pinned {
-        Err(_) => {},
-        Ok(_) => {},
-      }
-      pin_to_anchor(app, cfg.position.clone(), cfg.margin_px);
+      let _ = w.set_always_on_top(cfg.always_on_top);
+      pin_to_anchor(app, &cfg.position, cfg.margin_px);
       let app_copy = app.clone();
       w.on_window_event(move |event| {
-        let mut busy = repin_busy.lock().unwrap();
-        if *busy {
-          return;
-        }
-        *busy = true;
-        // The anchor and margin are re-read from the saved file on every event:
-        // a snapshot taken here is what made a saved position snap back, because
-        // the move itself fires a Moved event that re-pinned the old spot.
+        let guard = match try_enter() {
+          None => return,
+          Some(g) => g,
+        };
+        // The anchor and margin must not be a snapshot taken here: a snapshot is
+        // what made a saved position snap back, because the move itself fires a
+        // Moved event that re-pinned the old spot. `config_for` is cached, and
+        // every command that writes the file clears that cache, so this reads
+        // the new anchor on the very next event.
         let fresh = config_for(&app_copy);
         match event {
-          WindowEvent::Moved(_) => { pin_to_anchor(&app_copy, fresh.position, fresh.margin_px); bump_if_pinned(&app_copy); },
-          WindowEvent::Resized(_) => { pin_to_anchor(&app_copy, fresh.position, fresh.margin_px); },
-          WindowEvent::ScaleFactorChanged { .. } => { pin_to_anchor(&app_copy, fresh.position, fresh.margin_px); },
+          WindowEvent::Moved(_) => { pin_to_anchor(&app_copy, &fresh.position, fresh.margin_px); bump_if_pinned(&app_copy); },
+          WindowEvent::Resized(_) => { pin_to_anchor(&app_copy, &fresh.position, fresh.margin_px); },
+          WindowEvent::ScaleFactorChanged { .. } => { pin_to_anchor(&app_copy, &fresh.position, fresh.margin_px); },
           WindowEvent::Focused(false) => { bump_if_pinned(&app_copy); },
           WindowEvent::ThemeChanged(_) => { bump_if_pinned(&app_copy); },
+          WindowEvent::CloseRequested { .. } => {
+            // `Close` on the card is documented as quitting the app. Closing
+            // only the card does not quit it: the hidden settings window is
+            // still open, and Tauri's loop ends when the last window closes -
+            // so the process would keep running with no window and no taskbar
+            // entry (`skip_taskbar: true`), reachable only from Task Manager.
+            // The panel goes with the card, which is what lets the loop end.
+            // Closing the panel's own X does not come through here, so hiding
+            // or closing the panel on its own still leaves the card alive.
+            match app_copy.get_webview_window("config") {
+              None => {},
+              Some(c) => { let _ = c.close(); },
+            }
+          },
           _ => {},
         }
-        *busy = false;
+        drop(guard);
       });
     },
   }
@@ -254,56 +316,56 @@ mod tests {
 
   #[test]
   fn top_right_of_primary() {
-    let pos = anchor_position((0, 0, 2560, 1440), (340, 200), "top-right".to_string(), 12);
+    let pos = anchor_position((0, 0, 2560, 1440), (340, 200), "top-right", 12);
     assert_eq!(pos.0, 2208);
     assert_eq!(pos.1, 12);
   }
 
   #[test]
   fn bottom_right_is_flush_to_the_bottom() {
-    let pos = anchor_position((0, 0, 2560, 1440), (340, 200), "bottom-right".to_string(), 12);
+    let pos = anchor_position((0, 0, 2560, 1440), (340, 200), "bottom-right", 12);
     assert_eq!(pos.0, 2208);
     assert_eq!(pos.1, 1228);
   }
 
   #[test]
   fn middle_left_is_centred_vertically_and_flush_left() {
-    let pos = anchor_position((0, 0, 2560, 1440), (340, 200), "middle-left".to_string(), 12);
+    let pos = anchor_position((0, 0, 2560, 1440), (340, 200), "middle-left", 12);
     assert_eq!(pos.0, 12);
     assert_eq!(pos.1, 620);
   }
 
   #[test]
   fn top_middle_is_flush_top_and_centred_horizontally() {
-    let pos = anchor_position((0, 0, 2560, 1440), (340, 200), "top-middle".to_string(), 12);
+    let pos = anchor_position((0, 0, 2560, 1440), (340, 200), "top-middle", 12);
     assert_eq!(pos.0, 1110);
     assert_eq!(pos.1, 12);
   }
 
   #[test]
   fn middle_right_is_flush_right_not_centred() {
-    let pos = anchor_position((0, 0, 2560, 1440), (340, 200), "middle-right".to_string(), 12);
+    let pos = anchor_position((0, 0, 2560, 1440), (340, 200), "middle-right", 12);
     assert_eq!(pos.0, 2208);
     assert_eq!(pos.1, 620);
   }
 
   #[test]
   fn a_second_monitor_offsets_the_origin() {
-    let pos = anchor_position((2560, 0, 2560, 1440), (340, 200), "bottom-left".to_string(), 12);
+    let pos = anchor_position((2560, 0, 2560, 1440), (340, 200), "bottom-left", 12);
     assert_eq!(pos.0, 2572);
     assert_eq!(pos.1, 1228);
   }
 
   #[test]
   fn an_unknown_anchor_falls_back_to_top_right() {
-    let pos = anchor_position((0, 0, 2560, 1440), (340, 200), "somewhere-else".to_string(), 12);
+    let pos = anchor_position((0, 0, 2560, 1440), (340, 200), "somewhere-else", 12);
     assert_eq!(pos.0, 2208);
     assert_eq!(pos.1, 12);
   }
 
   #[test]
   fn a_window_bigger_than_the_monitor_clamps_to_the_origin() {
-    let pos = anchor_position((0, 0, 400, 300), (340, 200), "bottom-right".to_string(), 200);
+    let pos = anchor_position((0, 0, 400, 300), (340, 200), "bottom-right", 200);
     assert_eq!(pos.0, 0);
     assert_eq!(pos.1, 0);
   }

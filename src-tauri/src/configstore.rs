@@ -18,10 +18,13 @@ pub struct Config {
 
 impl Config {
   // A one-line description of the settings with the key redacted, for logging
-  // only. The key itself must never appear in a log line.
+  // only. The key itself must never appear in a log line, and the test
+  // `key_is_not_written_to_the_log` pins that rule - which is why the method is
+  // kept even though nothing in the app writes a log line today.
+  #[allow(dead_code)]
   pub fn summary(self) -> String {
     let url = self.base_url;
-    let redacted = if self.api_key == "" { "none" } else { "set" };
+    let redacted = if self.api_key.is_empty() { "none" } else { "set" };
     let poll = self.poll_ms;
     let margin = self.margin_px;
     let scale = self.scale;
@@ -170,14 +173,14 @@ mod tests {
   #[test]
   fn a_missing_file_is_a_first_run() {
     let file = test_dir("first_run_missing").join("config.json");
-    assert_eq!(is_first_run(&file), true);
+    assert!(is_first_run(&file));
   }
 
   #[test]
   fn a_saved_file_is_not_a_first_run() {
     let file = test_dir("first_run_saved").join("config.json");
     save_to(&file, &defaults()).unwrap();
-    assert_eq!(is_first_run(&file), false);
+    assert!(!is_first_run(&file));
   }
 
   // A path that cannot be stat'd at all is "nothing to read", which is a first
@@ -185,7 +188,7 @@ mod tests {
   #[test]
   fn a_directory_that_is_not_there_is_a_first_run() {
     let file = test_dir("first_run_absent_dir").join("nope").join("config.json");
-    assert_eq!(is_first_run(&file), true);
+    assert!(is_first_run(&file));
   }
 
   // The startup sequence the wiring runs: no file -> write the defaults once,
@@ -193,9 +196,9 @@ mod tests {
   #[test]
   fn first_run_writes_the_defaults_once() {
     let file = test_dir("first_run_write_once").join("config.json");
-    assert_eq!(is_first_run(&file), true);
+    assert!(is_first_run(&file));
     save_to(&file, &defaults()).unwrap();
-    assert_eq!(is_first_run(&file), false);
+    assert!(!is_first_run(&file));
     assert_eq!(load_from(&file), defaults());
   }
 

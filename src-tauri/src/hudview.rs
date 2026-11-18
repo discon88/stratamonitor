@@ -1,8 +1,9 @@
 // hudview.rs — turns a Strata /metrics snapshot into the five readouts the HUD
 // shows. Pure: no window, no network. The webview receives HudView as JSON
 // (camelCase) and renders it; nothing here touches the OS or the wire.
-
-use serde_json;
+//
+// serde_json is only needed by the tests: the production path parses straight
+// into Snapshot (see poller::classify) and never builds a Value tree.
 
 // ---------------------------------------------------------------------------
 // Wire shape consumed by public/js/view.js
@@ -147,18 +148,10 @@ pub fn empty_view() -> HudView {
     phase: None,
     progress: ProgressView { label: "idle".to_string(), tokens: None, total: None, pct: None },
     speed: SpeedView { decode: None, prefill: None },
-    load: LoadView { gpu: None, cpu: None, per_gpu: [].to_vec() },
+    load: LoadView { gpu: None, cpu: None, per_gpu: Vec::new() },
     context: ContextView { used: 0, max: 0, pct: None },
     model: "".to_string(),
     error: None,
-  }
-}
-
-pub fn from_snapshot(snapshot: serde_json::Value) -> HudView {
-  let parsed = serde_json::from_value(snapshot);
-  match parsed {
-    Err(_) => empty_view(),
-    Ok(snap) => build_view(&snap),
   }
 }
 
@@ -183,11 +176,14 @@ pub fn state_word(snap: &Snapshot) -> StateWord {
   match &snap.live {
     None => StateWord::Idle,
     Some(l) => {
-      let queued = match l.queued { None => 0, Some(q) => q };
+      let queued: u64 = l.queued.unwrap_or_default();
       if queued > 0 {
         return StateWord::Queued;
       }
-      let name = match l.state { None => "idle".to_string(), Some(ref s) => s.to_string() };
+      let name: &str = match &l.state {
+        None => "idle",
+        Some(s) => s.as_str(),
+      };
       if name == "reading" {
         return StateWord::Reading;
       }
@@ -208,37 +204,34 @@ pub fn state_word(snap: &Snapshot) -> StateWord {
 pub fn live_phase(snap: &Snapshot) -> Option<String> {
   match &snap.live {
     None => None,
-    Some(l) => match &l.phase {
-      None => None,
-      Some(ref s) => Some(s.to_string()),
-    },
+    Some(l) => l.phase.as_ref().map(|s| s.to_string()),
   }
 }
 
-pub fn live_state_name(snap: &Snapshot) -> String {
+// The state as a borrowed name, not an owned String: the three readouts below
+// ask for it on every poll, and each of them allocated a String per call.
+pub fn state_name(snap: &Snapshot) -> &str {
   match &snap.live {
-    None => "idle".to_string(),
-    Some(l) => match l.state { None => "idle".to_string(), Some(ref s) => s.to_string() },
+    None => "idle",
+    Some(l) => match &l.state {
+      None => "idle",
+      Some(s) => s.as_str(),
+    },
   }
 }
 
 // The server orders requests newest-first (requests[0].time is the largest in
 // the live payload), so the request the HUD quotes is the FIRST one, not the
 // last - the last is the oldest entry in the kept history, which barely moves.
-pub fn last_request(snap: &Snapshot) -> Option<Request> {
+pub fn last_request(snap: &Snapshot) -> Option<&Request> {
   match &snap.requests {
     None => None,
-    Some(list) => {
-      if list.len() == 0 {
-        return None;
-      }
-      Some(list[0].clone())
-    },
+    Some(list) => list.first(),
   }
 }
 
 pub fn progress_view(snap: &Snapshot) -> ProgressView {
-  let name = live_state_name(snap);
+  let name = state_name(snap);
   match &snap.live {
     None => ProgressView { label: "idle".to_string(), tokens: None, total: None, pct: None },
     Some(l) => {
@@ -259,10 +252,9 @@ pub fn progress_view(snap: &Snapshot) -> ProgressView {
         };
       }
       if name == "queued" || name == "unloaded" {
-        return ProgressView { label: name, tokens: None, total: None, pct: None };
+        return ProgressView { label: name.to_string(), tokens: None, total: None, pct: None };
       }
-      let last = last_request(snap);
-      match last {
+      match last_request(snap) {
         None => ProgressView { label: "idle".to_string(), tokens: None, total: None, pct: None },
         Some(r) => ProgressView { label: "idle".to_string(), tokens: r.output_tokens, total: None, pct: None },
       }
@@ -288,28 +280,29 @@ pub fn ratio(numerator: Option<u64>, denominator: Option<u64>) -> Option<f64> {
 }
 
 pub fn speed_view(snap: &Snapshot) -> SpeedView {
-  let name = live_state_name(snap);
+  let name = state_name(snap);
   let busy = name == "reading" || name == "generating" || name == "queued";
   let last = last_request(snap);
   match &snap.live {
     None => SpeedView { decode: None, prefill: None },
     Some(l) => {
-      let decode = if busy { l.tok_s } else { match last { None => None, Some(ref r) => r.decode_tok_s } };
+      let decode = if busy { l.tok_s } else { match last { None => None, Some(r) => r.decode_tok_s } };
       let prefill = if busy { l.prefill_tok_s_mean } else { derived_prefill(last) };
-      SpeedView { decode: decode, prefill: prefill }
+      SpeedView { decode, prefill }
     },
   }
 }
 
 // Idle prefill comes from the last request: new prompt tokens over the prompt
 // milliseconds, scaled to a per-second rate (upstream's renderMonitor).
-pub fn derived_prefill(request: Option<Request>) -> Option<f64> {
+pub fn derived_prefill(request: Option<&Request>) -> Option<f64> {
   match request {
     None => None,
     Some(r) => {
-      let prompt = match r.prompt_tokens { None => 0, Some(v) => v };
-      let reused = match r.reused { None => 0, Some(v) => v };
-      let ms = match r.prompt_ms { None => 0.0, Some(v) => v };
+      // A missing count means zero, which is what the arithmetic below expects.
+      let prompt: u64 = r.prompt_tokens.unwrap_or_default();
+      let reused: u64 = r.reused.unwrap_or_default();
+      let ms: f64 = r.prompt_ms.unwrap_or(0.0);
       if ms <= 0.0 {
         return None;
       }
@@ -321,57 +314,61 @@ pub fn derived_prefill(request: Option<Request>) -> Option<f64> {
 
 pub fn load_view(snap: &Snapshot) -> LoadView {
   match &snap.hardware {
-    None => LoadView { gpu: None, cpu: None, per_gpu: [].to_vec() },
+    None => LoadView { gpu: None, cpu: None, per_gpu: Vec::new() },
     Some(hw) => {
       let per_gpu = match &hw.gpus {
-        None => [].to_vec(),
-        Some(list) => per_gpu_list(list.clone()),
+        None => Vec::new(),
+        Some(list) => per_gpu_list(list),
       };
-      LoadView { gpu: hw.gpu_util, cpu: hw.cpu, per_gpu: per_gpu }
+      LoadView { gpu: hw.gpu_util, cpu: hw.cpu, per_gpu }
     },
   }
 }
 
-pub fn per_gpu_list(cards: Vec<GpuCard>) -> Vec<(u8, Option<f64>)> {
-  let mut out: Vec<(u8, Option<f64>)> = [].to_vec();
+// Borrows the cards instead of cloning the whole list, which is a clone of every
+// GpuCard (its strings included) for a readout that keeps two numbers per card.
+pub fn per_gpu_list(cards: &[GpuCard]) -> Vec<(u8, Option<f64>)> {
+  let mut out: Vec<(u8, Option<f64>)> = Vec::with_capacity(cards.len());
   for card in cards {
-    let index = match card.index { None => 0, Some(v) => v };
+    let index: u8 = card.index.unwrap_or_default();
     out.push((index, card.util));
   }
   out
 }
 
 pub fn context_view(snap: &Snapshot) -> ContextView {
-  let name = live_state_name(snap);
+  let name = state_name(snap);
   let used: u64 = match &snap.live {
     None => 0,
     Some(l) => {
       if name != "idle" {
-        let prompt = match l.prompt_tokens { None => 0, Some(v) => v };
-        let generated = match l.generated { None => 0, Some(v) => v };
+        let prompt: u64 = l.prompt_tokens.unwrap_or_default();
+        let generated: u64 = l.generated.unwrap_or_default();
         prompt + generated
       } else {
-        let last = last_request(snap);
-        match last {
+        match last_request(snap) {
           None => 0,
           Some(r) => {
-            let prompt = match r.prompt_tokens { None => 0, Some(v) => v };
-            let out = match r.output_tokens { None => 0, Some(v) => v };
+            let prompt: u64 = r.prompt_tokens.unwrap_or_default();
+            let out: u64 = r.output_tokens.unwrap_or_default();
             prompt + out
           },
         }
       }
     },
   };
-  let max = match &snap.engine { None => 0, Some(e) => match e.max_context { None => 0, Some(v) => v } };
+  let max: u64 = match &snap.engine { None => 0, Some(e) => e.max_context.unwrap_or_default() };
   let pct = if max == 0 { None } else { Some(used as f64 / max as f64) };
-  ContextView { used: used, max: max, pct: pct }
+  ContextView { used, max, pct }
 }
 
 pub fn model_name(snap: &Snapshot) -> String {
   match &snap.engine {
     None => "".to_string(),
-    Some(e) => match &e.model { None => "".to_string(), Some(m) => m.to_string() },
+    Some(e) => match &e.model {
+      None => "".to_string(),
+      Some(m) => m.clone(),
+    },
   }
 }
 
@@ -381,12 +378,20 @@ pub fn model_name(snap: &Snapshot) -> String {
 
 #[cfg(test)]
 mod tests {
-  use serde_json;
-  use crate::hudview::{StateWord, ErrorKind, from_snapshot, from_status};
+  
+  use crate::hudview::{StateWord, ErrorKind, HudView, Snapshot, build_view, from_status};
 
   fn fixture(text: &str) -> serde_json::Value {
     let parsed: serde_json::Value = serde_json::from_str(text).unwrap();
     parsed
+  }
+
+  // Test-only: the fixtures are written as JSON text, and the production path
+  // (poller::classify) parses text straight into Snapshot. Going through a Value
+  // here keeps the fixtures readable; it is not a shipped code path.
+  fn from_snapshot(snapshot: serde_json::Value) -> HudView {
+    let parsed: Snapshot = serde_json::from_value(snapshot).unwrap();
+    build_view(&parsed)
   }
 
   #[test]

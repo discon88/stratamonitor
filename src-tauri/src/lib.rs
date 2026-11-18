@@ -1,4 +1,3 @@
-use tauri;
 
 mod configstore;
 mod hudview;
