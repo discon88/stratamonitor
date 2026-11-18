@@ -211,7 +211,14 @@ if (typeof window !== "undefined") {
   // window, and the right-click menu's Config rebuilds it. Done hides it instead,
   // which keeps the page alive for the next reveal without a rebuild.
   field("done-button").addEventListener("click", function () {
-    tauri.invoke("hide_config_window");
+    // Same pattern as every other invoke on this panel: a refused or panicked
+    // command comes back as a rejected promise, and an unhandled one leaves the
+    // button looking like it did nothing.
+    tauri.invoke("hide_config_window").catch(function (err) {
+      const line = field("test-result");
+      line.className = "bad";
+      line.textContent = "hide error: " + String(err);
+    });
   });
 
   load_current();

@@ -327,9 +327,15 @@ pub fn load_view(snap: &Snapshot) -> LoadView {
 
 // Borrows the cards instead of cloning the whole list, which is a clone of every
 // GpuCard (its strings included) for a readout that keeps two numbers per card.
+// Cut to MAX_GPU_CARDS: the card is 340 px wide and the line is joined into one
+// string, so a server that reported a hundred cards would produce a readout that
+// cannot fit. The first cards are the ones the model is running on.
+const MAX_GPU_CARDS: usize = 8;
+
 pub fn per_gpu_list(cards: &[GpuCard]) -> Vec<(u8, Option<f64>)> {
-  let mut out: Vec<(u8, Option<f64>)> = Vec::with_capacity(cards.len());
-  for card in cards {
+  let wanted: usize = cards.len().min(MAX_GPU_CARDS);
+  let mut out: Vec<(u8, Option<f64>)> = Vec::with_capacity(wanted);
+  for card in cards.iter().take(wanted) {
     let index: u8 = card.index.unwrap_or_default();
     out.push((index, card.util));
   }
@@ -344,14 +350,18 @@ pub fn context_view(snap: &Snapshot) -> ContextView {
       if name != "idle" {
         let prompt: u64 = l.prompt_tokens.unwrap_or_default();
         let generated: u64 = l.generated.unwrap_or_default();
-        prompt + generated
+        // Saturating: a nonsense count from the server must not wrap into a
+        // small number on screen (a release build wraps silently). The sum is a
+        // display value that divides by the window, and it can only ever be
+        // too big, never wrong-by-wrapping.
+        prompt.saturating_add(generated)
       } else {
         match last_request(snap) {
           None => 0,
           Some(r) => {
             let prompt: u64 = r.prompt_tokens.unwrap_or_default();
             let out: u64 = r.output_tokens.unwrap_or_default();
-            prompt + out
+            prompt.saturating_add(out)
           },
         }
       }
@@ -448,6 +458,26 @@ mod tests {
     let view = from_snapshot(two);
     assert_eq!(view.load.gpu, Some(57.5));
     assert_eq!(view.load.per_gpu, [(0, Some(40.0)), (1, Some(75.0))]);
+  }
+
+  // The HUD is 340 px wide and the per-card line is one joined string, so a
+  // server that reported far more cards than fit gets cut rather than drawn.
+  #[test]
+  fn a_card_list_larger_than_the_readout_is_cut() {
+    let cards: Vec<String> = (0..40_u8).map(|i| format!(r#"{{"index":{i},"util":1.0}}"#)).collect();
+    let text = format!(r#"{{"engine":{{"model":"m","max_context":100}},"live":{{"state":"idle","queued":0,"prompt_tokens":0,"generated":0,"max_tokens":0,"prompt_read":0,"prompt_total":0,"tok_s":0.0,"prefill_tok_s_mean":0.0}},"hardware":{{"gpu_util":1.0,"cpu":1.0,"gpus":[{}]}},"requests":[]}}"#, cards.join(","));
+    let view = from_snapshot(fixture(&text));
+    assert_eq!(view.load.per_gpu.len(), 8, "the readout keeps the first cards only");
+    assert_eq!(view.load.per_gpu[0], (0, Some(1.0)));
+    assert_eq!(view.load.per_gpu[7], (7, Some(1.0)));
+  }
+
+  // Absurd counts from a server must saturate, not wrap into a small number.
+  #[test]
+  fn absurd_context_counts_do_not_wrap() {
+    let huge = fixture(r#"{"engine":{"model":"m","max_context":100},"live":{"state":"generating","queued":0,"prompt_tokens":18446744073709551615,"generated":10,"max_tokens":9,"prompt_read":0,"prompt_total":0,"tok_s":1.0,"prefill_tok_s_mean":2.0},"hardware":{"gpu_util":1.0,"cpu":1.0,"gpus":[]},"requests":[]}"#);
+    let view = from_snapshot(huge);
+    assert_eq!(view.context.used, u64::MAX, "the sum saturates instead of wrapping past zero");
   }
 
   #[test]

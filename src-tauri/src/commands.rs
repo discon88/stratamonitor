@@ -24,6 +24,17 @@ pub struct HudState {
   pub api_key_set: bool,
 }
 
+// The fastest interval the HUD will actually run at. `poll_ms` lives in the
+// file and is not offered in the panel, so a hand-edited `"poll_ms": 1` would
+// otherwise become a poll and an invoke every millisecond - the app racing
+// itself and its own server. The floor is applied where the value is handed to
+// the page, so a silly file cannot turn the HUD into a busy loop.
+const MIN_POLL_MS: u32 = 250;
+
+pub fn clamped_poll_ms(value: u32) -> u32 {
+  if value < MIN_POLL_MS { MIN_POLL_MS } else { value }
+}
+
 #[tauri::command]
 pub fn get_hud_state(app: tauri::AppHandle) -> HudState {
   let cfg = config_for(&app);
@@ -35,7 +46,7 @@ pub fn get_hud_state(app: tauri::AppHandle) -> HudState {
       Ok(value) => value,
     },
   };
-  HudState { always_on_top: on, poll_ms: cfg.poll_ms, margin_px: cfg.margin_px, scale: cfg.scale, position: cfg.position.clone(), base_url: cfg.base_url.clone(), api_key_set: !cfg.api_key.is_empty() }
+  HudState { always_on_top: on, poll_ms: clamped_poll_ms(cfg.poll_ms), margin_px: cfg.margin_px, scale: cfg.scale, position: cfg.position.clone(), base_url: cfg.base_url.clone(), api_key_set: !cfg.api_key.is_empty() }
 }
 
 #[tauri::command]
@@ -286,7 +297,7 @@ pub fn hide_config_window(app: tauri::AppHandle) {
 
 #[cfg(test)]
 mod tests {
-  use crate::commands::{report, summary_of, with_position, MoveAck};
+  use crate::commands::{clamped_poll_ms, report, summary_of, with_position, MoveAck};
   use crate::configstore::{Config, defaults, save_to, load_from};
   use crate::hudview::{ErrorKind};
   use std::path::{Path};
@@ -341,6 +352,18 @@ mod tests {
     assert_eq!(moved.always_on_top, previous.always_on_top, "a grid click must not touch the pin");
     assert_eq!(moved.poll_ms, previous.poll_ms, "a grid click must not reset the interval");
     assert_eq!(moved.position, "bottom-left", "only the anchor changes");
+  }
+
+  // The interval the page is given cannot be smaller than the floor, so a
+  // hand-edited file cannot turn the HUD into a poll every millisecond.
+  #[test]
+  fn a_tiny_poll_interval_is_clamped_to_the_floor() {
+    assert_eq!(clamped_poll_ms(0), 250);
+    assert_eq!(clamped_poll_ms(1), 250);
+    assert_eq!(clamped_poll_ms(249), 250);
+    assert_eq!(clamped_poll_ms(250), 250, "the floor itself is not raised");
+    assert_eq!(clamped_poll_ms(1000), 1000, "the normal interval passes through");
+    assert_eq!(clamped_poll_ms(10_000), 10_000, "a slower interval is not sped up");
   }
 
   #[test]

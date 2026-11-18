@@ -35,6 +35,9 @@ export function staleRate(current, previous, elapsedMs) {
   return isStale(current, previous, elapsedMs) ? "0" : current;
 }
 
+// One payload in, the strings to write out, the tone to colour them with, and
+// the text for the error line. `tone` is view.js's state -> tone mapping, so
+// hud.css is the only place a colour is decided.
 export function applyPayload(previous, payload) {
   const view = globalThis.formatView(payload);
   const strings = {
@@ -57,7 +60,7 @@ export function applyPayload(previous, payload) {
     }
   }
 
-  return { strings: strings, progressStale: view.progress.stale, errorText: view.error === null ? null : view.error.text };
+  return { strings: strings, tone: view.state.tone, progressStale: view.progress.stale, errorText: view.error === null ? null : view.error.text };
 }
 
 if (typeof window !== "undefined") {
@@ -128,8 +131,10 @@ if (typeof window !== "undefined") {
     }
 
     // Both halves of the state line carry the page's own state colour, and the
-    // class is written only when the tone changes.
-    const tone = "tone-" + payloadTone(payload);
+    // class is written only when the tone changes. The tone comes from view.js,
+    // which owns the state -> tone mapping; a second map here would be a second
+    // source of truth for the same rule.
+    const tone = "tone-" + out.tone;
     if (nodes["state-word"] && nodes["state-word"].className !== tone) {
       nodes["state-word"].className = tone;
     }
@@ -152,11 +157,6 @@ if (typeof window !== "undefined") {
         }
       }
     }
-  }
-
-  function payloadTone(payload) {
-    const tones = { idle: "idle", reading: "reading", generating: "generating", queued: "queued", unloaded: "muted" };
-    return tones[payload.state] || "muted";
   }
 
   // The interval and the pin state both come from Rust, which owns the

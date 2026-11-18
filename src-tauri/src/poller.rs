@@ -22,6 +22,13 @@ const UNREACHABLE_AFTER_FAILURES: u32 = 3;
 const POLL_TIMEOUT_MS: u32 = 2000;
 const CONNECT_TIMEOUT_MS: u32 = 1000;
 
+// A response body carries no built-in ceiling: reqwest and hyper cap a single
+// frame, not the whole body, so a server that answers 200 with megabytes would
+// allocate all of it on every poll. The timeout bounds how long a poll takes,
+// not how much it reads, so this is the ceiling. `/metrics` is a few kilobytes;
+// anything past it is not a snapshot the HUD can use.
+const MAX_BODY_BYTES: usize = 256 * 1024;
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum OutcomeKind {
   Good,
@@ -179,10 +186,50 @@ pub fn invalidate_config_cache() {
   *recover(&CONFIG_CACHE) = None;
 }
 
+// Accumulates a body under the ceiling. An announced size over it is refused
+// before a single byte is read; a chunked body that announces nothing is refused
+// where it crosses it. The body is dropped rather than truncated: half a JSON
+// document must not be read as a snapshot, and an empty body is already "a
+// failed poll" to classify, so the readouts keep the last good view.
+pub struct BodySink {
+  bytes: Vec<u8>,
+  limit: usize,
+}
+
+impl BodySink {
+  // None means "this body is too big to read at all", so nothing is fetched.
+  pub fn new(declared: Option<u64>) -> Option<BodySink> {
+    match declared {
+      Some(n) if n > MAX_BODY_BYTES as u64 => None,
+      Some(n) => Some(BodySink { bytes: Vec::with_capacity(n as usize), limit: MAX_BODY_BYTES }),
+      None => Some(BodySink { bytes: Vec::new(), limit: MAX_BODY_BYTES }),
+    }
+  }
+
+  // false means the body has crossed the ceiling and the whole thing is dropped.
+  pub fn push(&mut self, chunk: &[u8]) -> bool {
+    if self.bytes.len() + chunk.len() > self.limit {
+      return false;
+    }
+    self.bytes.extend_from_slice(chunk);
+    true
+  }
+
+  // A body that is not UTF-8 is refused too. The metrics payload is UTF-8, and
+  // guessing at a charset for a LAN server is not worth a wrong readout.
+  pub fn finish(self) -> Option<String> {
+    // None here means "not UTF-8"; the caller drops the body and the poll reads
+    // as a failure, which keeps the last good view on screen.
+    String::from_utf8(self.bytes).ok()
+  }
+}
+
 // One poll: GET /metrics, bearer header only when a key is configured (a
 // server without a key must not get an empty Authorization header).
 // One GET, returned as (status, body text). Status 0 is the sentinel for
-// "no response at all": connection refused, timeout, DNS miss.
+// "no response at all": connection refused, timeout, DNS miss. An empty body
+// with a real status is the sentinel for "a body we refuse to read": over the
+// ceiling, or not UTF-8.
 pub async fn http_get(url: &str, api_key: &str) -> (u16, String) {
   let client = client();
   let built = client.get(url);
@@ -194,12 +241,31 @@ pub async fn http_get(url: &str, api_key: &str) -> (u16, String) {
   let sent = built.send().await;
   match sent {
     Err(_) => (0, String::new()),
-    Ok(resp) => {
+    Ok(mut resp) => {
       let status = resp.status();
       let code: u16 = if status.is_success() { 200 } else if status == reqwest::StatusCode::UNAUTHORIZED { 401 } else { 0 };
-      match resp.text().await {
-        Err(_) => (code, String::new()),
-        Ok(text) => (code, text),
+      // Read in pieces so an oversized body is rejected while it arrives, not
+      // after it has all been allocated. A transport error part-way through is
+      // the same "no usable body" answer as an over-large one.
+      match BodySink::new(resp.content_length()) {
+        None => (code, String::new()),
+        Some(mut sink) => {
+          loop {
+            match resp.chunk().await {
+              Err(_) => return (code, String::new()),
+              Ok(None) => break,
+              Ok(Some(chunk)) => {
+                if !sink.push(&chunk) {
+                  return (code, String::new());
+                }
+              },
+            }
+          }
+          match sink.finish() {
+            None => (code, String::new()),
+            Some(text) => (code, text),
+          }
+        },
       }
     },
   }
@@ -272,7 +338,7 @@ pub async fn poll_now(app: tauri::AppHandle) -> HudView {
 
 #[cfg(test)]
 mod tests {
-  use crate::poller::{OutcomeKind, classify, endpoint, next_failure_count, success_resets_count, is_unreachable, shown_after_failure, http_get};
+  use crate::poller::{OutcomeKind, BodySink, MAX_BODY_BYTES, classify, endpoint, next_failure_count, success_resets_count, is_unreachable, shown_after_failure, http_get};
   use crate::hudview::{ErrorKind, HudView, Snapshot, StateWord, build_view};
   
   use tauri::async_runtime;
@@ -385,6 +451,35 @@ mod tests {
     assert_eq!(next_failure_count(u32::MAX), u32::MAX);
     assert_eq!(next_failure_count(u32::MAX - 1), u32::MAX);
     assert!(is_unreachable(u32::MAX));
+  }
+
+  // The body ceiling, driven directly. A refused body is dropped, so classify
+  // sees an empty body: a failed poll that keeps the last good view, never half
+  // a snapshot.
+  #[test]
+  fn an_announced_body_over_the_ceiling_is_refused_before_any_byte_arrives() {
+    assert!(BodySink::new(Some(MAX_BODY_BYTES as u64 + 1)).is_none(), "a declared size past the ceiling must not be fetched");
+    assert!(BodySink::new(Some(MAX_BODY_BYTES as u64)).is_some(), "the ceiling itself is allowed");
+    assert!(BodySink::new(None).is_some(), "a body that announces no size is still read, up to the ceiling");
+  }
+
+  #[test]
+  fn a_chunked_body_is_refused_where_it_crosses_the_ceiling() {
+    let mut sink = BodySink::new(None).unwrap_or_else(|| panic!("an unannounced body must be accepted"));
+    let chunk: Vec<u8> = vec![b'x'; MAX_BODY_BYTES];
+    assert!(sink.push(&chunk), "the ceiling itself is allowed");
+    assert!(!sink.push(b"y"), "one byte past it rejects the whole body");
+    // Dropped, not truncated.
+    let outcome = classify(200, "");
+    assert_eq!(outcome.kind, OutcomeKind::Failed);
+    assert!(outcome.view.is_none(), "so the caller keeps the last good view");
+  }
+
+  #[test]
+  fn a_body_that_is_not_utf8_is_refused() {
+    let mut sink = BodySink::new(None).unwrap_or_else(|| panic!("an unannounced body must be accepted"));
+    assert!(sink.push(&[0xC3, 0x28]), "the bytes are under the ceiling");
+    assert!(sink.finish().is_none(), "but they are not text the HUD can parse");
   }
 
   #[test]
