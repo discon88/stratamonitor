@@ -8,7 +8,7 @@
 // `position`, `always_on_top` — not the snake_case form.
 import assert from "node:assert";
 import { test } from "node:test";
-import { saveArgs, positionArgs, saveLine, moveLine, cleartextHint, resultLine } from "../public/js/config.js";
+import { saveArgs, positionArgs, saveLine, moveLine, cleartextHint, resultLine, testLine } from "../public/js/config.js";
 
 test("every key the Rust command needs is in the case the macro asks for", () => {
   const out = saveArgs("http://127.0.0.1:8080", "s3cr3t", "bottom-left", true);
@@ -124,6 +124,38 @@ test("an address that does not parse is not guessed at", () => {
   assert.equal(cleartextHint("not a url", true), null);
   assert.equal(cleartextHint("", true), null);
   assert.equal(cleartextHint("   ", true), null);
+});
+
+// Test connection: a failure keeps red (it is a failure, not a warning), and a
+// reachable plain-http host holding a key turns amber, because that is the
+// moment the key crossed the wire in the clear.
+test("a reachable plain http host with a key reads amber", () => {
+  const hint = cleartextHint("http://192.0.2.1:8080", true);
+  const note = testLine({ ok: true, error: null, model: "qwen-32b", max_context: 131072 }, hint);
+  assert.equal(note.className, "warn");
+  assert.equal(note.text.startsWith("reachable"), true);
+  assert.equal(note.text.includes("qwen-32b"), true);
+  assert.equal(note.text.includes("131072 context"), true);
+  assert.equal(note.text.includes("cleartext"), true);
+});
+
+test("a failed test stays red even with a cleartext warning", () => {
+  const hint = cleartextHint("http://192.0.2.1:8080", true);
+  const note = testLine({ ok: false, error: "unreachable", model: null, max_context: null }, hint);
+  assert.equal(note.className, "bad", "a failure must not be recoloured into a warning");
+  assert.equal(note.text.includes("Server not reachable"), true);
+  assert.equal(note.text.includes("cleartext"), true, "but the warning is still stated");
+});
+
+test("a reachable https host is green, with no warning", () => {
+  const note = testLine({ ok: true, error: null, model: null, max_context: null }, cleartextHint("https://example.test", true));
+  assert.equal(note.className, "good");
+  assert.equal(note.text, "reachable");
+});
+
+test("no report and no hint is nothing to write", () => {
+  assert.equal(testLine(null, null), null);
+  assert.equal(testLine(null, cleartextHint("http://192.0.2.1:8080", true)).className, "warn");
 });
 
 // Combining a result line with the warning: a failed write is the bigger fact,

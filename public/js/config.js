@@ -160,6 +160,29 @@ export function resultLine(note, hint) {
   return { text: note.text + " · " + hint, className: note.className === "" ? "warn" : note.className };
 }
 
+// What Test connection puts on the line. A failure keeps red, because it is a
+// failure and not a warning, and the warning is still stated beside it - a 401
+// means the request landed, so the key really did go out in the clear. A
+// reachable plain-http host that holds a key turns amber, because that is the
+// moment the key crossed the wire in the clear.
+export function testLine(report, hint) {
+  if (!report) {
+    return hint ? { text: hint, className: "warn" } : null;
+  }
+  let text = report.ok ? "reachable" : (ERRORS[report.error] || "failed");
+  if (report.model) {
+    text = text + " · " + report.model;
+  }
+  if (report.max_context) {
+    text = text + " · " + report.max_context + " context";
+  }
+  const className = report.ok ? (hint ? "warn" : "good") : "bad";
+  if (hint) {
+    text = text + " · " + hint;
+  }
+  return { text: text, className: className };
+}
+
 function collect() {
   return saveArgs(
     field("f-base-url").value,
@@ -204,24 +227,14 @@ async function test() {
     return;
   }
   const line = field("test-result");
-  line.className = out.ok ? "good" : "bad";
-
-  let text = out.ok ? "reachable" : (ERRORS[out.error] || "failed");
-  if (out.model) {
-    text = text + " · " + out.model;
-  }
-  if (out.max_context) {
-    text = text + " · " + out.max_context + " context";
-  }
   // The report has no address of its own, so the warning reads the box the test
   // just went to, and the key flag is "typed now or already saved".
   const typedKey = field("f-api-key").value.length > 0;
-  const hint = cleartextHint(field("f-base-url").value, typedKey || savedKeySet);
-  if (hint) {
-    line.className = "warn";
-    text = text + " · " + hint;
+  const note = testLine(out, cleartextHint(field("f-base-url").value, typedKey || savedKeySet));
+  if (note) {
+    line.className = note.className;
+    line.textContent = note.text;
   }
-  line.textContent = text;
 }
 
 // Everything below touches the DOM and Tauri, so it only runs in the window.
