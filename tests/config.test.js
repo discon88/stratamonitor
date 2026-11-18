@@ -7,7 +7,7 @@
 // So the keys here must be the camelCase form of `base_url`, `api_key`,
 // `position`, `always_on_top` — not the snake_case form.
 import assert from "node:assert";
-import { saveArgs, positionArgs } from "../public/js/config.js";
+import { saveArgs, positionArgs, saveLine, moveLine } from "../public/js/config.js";
 
 // Every key the Rust command needs, in the case the macro asks for.
 {
@@ -37,6 +37,44 @@ import { saveArgs, positionArgs } from "../public/js/config.js";
 {
   assert.equal(saveArgs("u", "", "bottom-right", false).position, "bottom-right");
   assert.equal(saveArgs("u", "", "somewhere-else", false).position, "somewhere-else");
+}
+
+// Save's result line must distinguish "written to disk" from "applied for this
+// session only". A write that failed used to be reported as a save.
+{
+  const ok = saveLine({ baseUrl: "http://192.0.2.1:8080", position: "bottom-right", alwaysOnTop: true, apiKeySet: true, saved: true });
+  assert.equal(ok.className, "");
+  assert.equal(ok.text.startsWith("saved:"), true);
+  assert.equal(ok.text.includes("key set"), true);
+}
+
+{
+  const bad = saveLine({ baseUrl: "http://192.0.2.1:8080", position: "top-left", alwaysOnTop: false, apiKeySet: false, saved: false });
+  assert.equal(bad.className, "bad");
+  assert.equal(bad.text.includes("not written to config.json"), true, "a failed write must be named");
+  assert.equal(bad.text.includes("lost on the next start"), true, "and its consequence stated");
+  // The settings still show, because they are live in this session.
+  assert.equal(bad.text.includes("http://192.0.2.1:8080"), true);
+  assert.equal(bad.text.includes("key none"), true);
+}
+
+// Neither line may carry a key: the summary has only a boolean for it, so a
+// secret could not appear here even if one were passed in.
+{
+  const withFlag = saveLine({ baseUrl: "u", position: "top-right", alwaysOnTop: true, apiKeySet: true, saved: true });
+  assert.equal(withFlag.text.includes("s3cr3t"), false);
+  assert.equal(withFlag.text.includes("api_key"), false);
+}
+
+// A grid click that moved the card and persisted it stays silent - the square
+// already shows the new spot. A click whose write failed must say so.
+{
+  assert.equal(moveLine({ anchor: "bottom-left", saved: true }), null);
+  const note = moveLine({ anchor: "bottom-left", saved: false });
+  assert.equal(note.className, "bad");
+  assert.equal(note.text.includes("config.json"), true);
+  assert.equal(note.text.includes("lost on the next start"), true);
+  assert.equal(note.text.includes("api_key"), false, "a click line must never name the key");
 }
 
 // Clicking a grid square moves the HUD on its own, through a command that

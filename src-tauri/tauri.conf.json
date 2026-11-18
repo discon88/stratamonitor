@@ -1,5 +1,5 @@
 {
-  "identifier": "dev.strata.monitor",
+  "identifier": "com.strata.monitor",
   "productName": "StrataMonitor",
   "version": "0.1.0",
   "build": {

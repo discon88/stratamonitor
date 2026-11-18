@@ -54,8 +54,10 @@ Defaults: `http://127.0.0.1:8080`, no API key, poll every 1000 ms, 12 px margin,
 The settings live in one JSON file next to the window-state file:
 
 ```
-C:\Users\<you>\AppData\Roaming\dev.strata.monitor\config.json
+C:\Users\<you>\AppData\Roaming\com.strata.monitor\config.json
 ```
+
+The folder is named after the app identifier in `src-tauri/tauri.conf.json` (`com.strata.monitor`), so changing that identifier changes where the settings are saved.
 
 A missing or corrupt file is not an error — the app falls back to the defaults above, so a bad file cannot brick the HUD. `poll_ms`, `margin_px` and `scale` are no longer offered in the settings window; they keep whatever the file holds and can still be edited there.
 

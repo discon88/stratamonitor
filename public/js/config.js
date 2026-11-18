@@ -28,7 +28,17 @@ const CELLS = [
 let selectedAnchor = null;
 
 async function load_current() {
-  const state = await tauri.invoke("get_hud_state");
+  let state;
+  try {
+    state = await tauri.invoke("get_hud_state");
+  } catch (err) {
+    // A refused invoke is otherwise an unhandled rejection: the panel would
+    // open with empty fields and no explanation. Same pattern as the grid click.
+    const line = field("test-result");
+    line.className = "bad";
+    line.textContent = "state error: " + String(err);
+    return;
+  }
   field("f-base-url").value = state.baseUrl;
   field("f-always-on-top").checked = state.alwaysOnTop;
 
@@ -78,6 +88,29 @@ export function positionArgs(anchor) {
   };
 }
 
+// What Save puts on the panel's result line, as text plus a class. Pure so
+// `node --test` can pin it. The rule: the line must say whether config.json was
+// actually written, because a locked or unwritable file still applies the
+// settings for this session and loses them at the next start. Neither line can
+// carry the key - the summary only has a boolean for it.
+export function saveLine(summary) {
+  const settings = summary.baseUrl + " · " + summary.position + " · pinned " + summary.alwaysOnTop + " · key " + (summary.apiKeySet ? "set" : "none");
+  if (!summary.saved) {
+    return { text: "not written to config.json — applies now, lost on the next start · " + settings, className: "bad" };
+  }
+  return { text: "saved: " + settings, className: "" };
+}
+
+// What a grid click puts on the same line, or nothing when the click both moved
+// the card and persisted. A failed write is shown because the card is in a new
+// spot that will not survive the next start.
+export function moveLine(ack) {
+  if (ack && ack.saved) {
+    return null;
+  }
+  return { text: "moved, but config.json could not be written — lost on the next start", className: "bad" };
+}
+
 function collect() {
   return saveArgs(
     field("f-base-url").value,
@@ -88,18 +121,35 @@ function collect() {
 }
 
 async function save() {
-  const saved = await tauri.invoke("save_config", collect());
+  let saved;
+  try {
+    saved = await tauri.invoke("save_config", collect());
+  } catch (err) {
+    const line = field("test-result");
+    line.className = "bad";
+    line.textContent = "save error: " + String(err);
+    return;
+  }
   // What comes back is a SavedSummary, not the Config struct: Config carries
   // the API key, and the panel's rule is that the key never crosses to the page.
   // The keys here are camelCase because that struct asks for that spelling.
   const line = field("test-result");
-  line.textContent = "saved: " + saved.baseUrl + " · " + saved.position + " · pinned " + saved.alwaysOnTop + " · key " + (saved.apiKeySet ? "set" : "none");
-  line.className = "";
+  const note = saveLine(saved);
+  line.className = note.className;
+  line.textContent = note.text;
   await load_current();
 }
 
 async function test() {
-  const out = await tauri.invoke("test_connection");
+  let out;
+  try {
+    out = await tauri.invoke("test_connection");
+  } catch (err) {
+    const line = field("test-result");
+    line.className = "bad";
+    line.textContent = "test error: " + String(err);
+    return;
+  }
   const line = field("test-result");
   line.className = out.ok ? "good" : "bad";
 
@@ -128,10 +178,18 @@ if (typeof window !== "undefined") {
       // The click moves the HUD straight away - the human asked for the square
       // to take effect on click, not on Save. Rust re-reads the file, so the
       // Moved event this move fires re-pins the new anchor, not the old one.
-      tauri.invoke("set_hud_position", positionArgs(pair[1])).then(function () {
+      tauri.invoke("set_hud_position", positionArgs(pair[1])).then(function (ack) {
         // Re-read the state so the filled "where you are" square follows the
-        // window to its new spot.
+        // window to its new spot, whatever the write did.
         load_current();
+        // A write that failed is a fact the human needs: the card moved, but
+        // the new spot is lost on the next start.
+        const note = moveLine(ack);
+        if (note) {
+          const line = field("test-result");
+          line.className = note.className;
+          line.textContent = note.text;
+        }
       }).catch(function (err) {
         // A refused or panicked invoke is otherwise invisible; put it on the
         // panel where it can be read (same pattern as the HUD's error line).
