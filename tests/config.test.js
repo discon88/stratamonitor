@@ -8,7 +8,7 @@
 // `position`, `always_on_top` — not the snake_case form.
 import assert from "node:assert";
 import { test } from "node:test";
-import { saveArgs, positionArgs, saveLine, moveLine } from "../public/js/config.js";
+import { saveArgs, positionArgs, saveLine, moveLine, cleartextHint, resultLine } from "../public/js/config.js";
 
 test("every key the Rust command needs is in the case the macro asks for", () => {
   const out = saveArgs("http://127.0.0.1:8080", "s3cr3t", "bottom-left", true);
@@ -90,4 +90,65 @@ test("a click carries only the anchor", () => {
   assert.equal(keys.includes("apiKey"), false, "a click must never carry a key");
   assert.equal(keys.includes("base_url"), false, "a click must not touch the address");
   assert.equal(keys.includes("alwaysOnTop"), false, "a click must not touch the pin state");
+});
+
+// A key sent to a plain `http://` host crosses the network in cleartext. The
+// panel warns instead of refusing, because a LAN Strata server on plain http is
+// the usual setup here, and it warns only for a host that is not this machine
+// and only when a key is involved.
+test("a plain http host off this machine warns about cleartext", () => {
+  const hint = cleartextHint("http://192.0.2.1:8080", true);
+  assert.equal(hint !== null, true, "a key to a LAN host over plain http must be warned about");
+  assert.equal(hint.includes("cleartext"), true);
+  assert.equal(hint.includes("https"), true, "and must point at the fix");
+  assert.equal(hint.includes("192.0.2.1"), true, "it names the host it is warning about");
+  assert.equal(hint.includes("s3cr3t"), false, "the warning must never carry the key");
+  assert.equal(hint.includes("api_key"), false, "nor even name the field");
+});
+
+// Loopback is the machine's own server: nothing crosses a wire that could be
+// read, so the whole loopback range and its names are not warnings.
+test("loopback on plain http is not a cleartext warning", () => {
+  assert.equal(cleartextHint("http://127.0.0.1:8080", true), null);
+  assert.equal(cleartextHint("http://localhost:8080", true), null);
+  assert.equal(cleartextHint("http://[::1]:8080", true), null);
+  assert.equal(cleartextHint("http://127.0.0.2:8080", true), null, "the whole 127 range is this machine");
+});
+
+test("https, and http with no key, are not warnings", () => {
+  assert.equal(cleartextHint("https://example.test:8443", true), null, "https carries the key encrypted");
+  assert.equal(cleartextHint("http://192.0.2.1:8080", false), null, "no key means nothing to leak");
+});
+
+test("an address that does not parse is not guessed at", () => {
+  assert.equal(cleartextHint("not a url", true), null);
+  assert.equal(cleartextHint("", true), null);
+  assert.equal(cleartextHint("   ", true), null);
+});
+
+// Combining a result line with the warning: a failed write is the bigger fact,
+// so it keeps the red class, and a line carrying only a warning reads amber.
+test("a failed write and a cleartext warning are stated together", () => {
+  const hint = cleartextHint("http://192.0.2.1:8080", true);
+  const note = resultLine(saveLine({ baseUrl: "http://192.0.2.1:8080", position: "top-right", alwaysOnTop: true, apiKeySet: true, saved: false }), hint);
+  assert.equal(note.className, "bad", "the write failure outranks the warning");
+  assert.equal(note.text.includes("not written to config.json"), true);
+  assert.equal(note.text.includes("cleartext"), true, "but both are stated");
+});
+
+test("a saved write to a cleartext host reads amber", () => {
+  const hint = cleartextHint("http://192.0.2.1:8080", true);
+  const note = resultLine(saveLine({ baseUrl: "http://192.0.2.1:8080", position: "top-right", alwaysOnTop: true, apiKeySet: true, saved: true }), hint);
+  assert.equal(note.className, "warn", "a warning is not an error");
+  assert.equal(note.text.startsWith("saved:"), true);
+  assert.equal(note.text.includes("cleartext"), true);
+  assert.equal(note.text.includes("api_key"), false);
+});
+
+test("a bare warning is a line, and nothing to say is nothing", () => {
+  const warned = resultLine(null, cleartextHint("http://192.0.2.1:8080", true));
+  assert.equal(warned.className, "warn");
+  assert.equal(warned.text.includes("cleartext"), true);
+  assert.equal(resultLine(null, null), null, "nothing to write is nothing to write");
+  assert.equal(resultLine(saveLine({ baseUrl: "https://example.test", position: "top-right", alwaysOnTop: true, apiKeySet: false, saved: true }), null).className, "");
 });

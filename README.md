@@ -51,6 +51,8 @@ Defaults: `http://127.0.0.1:8080`, no API key, poll every 1000 ms, 12 px margin,
 
 `scale` is written to the file and read back, but nothing in the app uses it yet.
 
+If the address is `http://` and the host is not this machine (`127.0.0.1`, `localhost`, or `::1`), the settings window says so in amber on **Save** and **Test connection**: a key sent to a plain `http://` host crosses the network in cleartext, so `https://` is what you want when the server is somewhere else. It warns rather than refusing, because a LAN Strata server on plain `http://` is the usual setup here.
+
 ## Settings file
 
 The settings live in one JSON file next to the window-state file:
@@ -63,7 +65,7 @@ The folder is named after the app identifier in `src-tauri/tauri.conf.json` (`co
 
 A missing or corrupt file is not an error — the app falls back to the defaults above, so a bad file cannot brick the HUD. `poll_ms`, `margin_px` and `scale` are no longer offered in the settings window; they keep whatever the file holds and can still be edited there. A `poll_ms` below 250 is raised to 250 when the HUD reads it, so an edited file cannot turn the card into a poll every millisecond.
 
-The API key is stored in that file and sent only to your own server. It is never handed to the webview: the HUD asks Rust for `apiKeySet`, a boolean, and nothing more.
+The API key is stored in that file and sent only to the server you point at. It is never handed to the webview: the HUD asks Rust for `apiKeySet`, a boolean, and nothing more.
 
 ## Building
 

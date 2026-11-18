@@ -26,6 +26,10 @@ const CELLS = [
 ];
 
 let selectedAnchor = null;
+// Whether a key is already saved. The panel never holds the saved key - Rust
+// sends `apiKeySet` only - but it needs to know one exists to warn about it
+// being sent in cleartext.
+let savedKeySet = false;
 
 async function load_current() {
   let state;
@@ -43,6 +47,7 @@ async function load_current() {
   field("f-always-on-top").checked = state.alwaysOnTop;
 
   const note = field("n-api-key");
+  savedKeySet = state.apiKeySet === true;
   if (state.apiKeySet) {
     note.textContent = "a key is saved — type one to replace it, or clear the box to remove it";
   } else {
@@ -111,6 +116,50 @@ export function moveLine(ack) {
   return { text: "moved, but config.json could not be written — lost on the next start", className: "bad" };
 }
 
+// A key sent to a plain `http://` address travels in cleartext over whatever
+// network the host sits on. Loopback is the machine's own server, so nothing
+// crosses a wire that could be read; any other host is, and the panel must say
+// that out loud rather than let a key be saved blind. It warns instead of
+// refusing: a LAN Strata server on plain http is the normal setup here, and a
+// refusal would break the app for the person it is warning.
+// Pure, so `node --test` can pin it, and it never returns the key.
+const LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "::1"];
+
+export function cleartextHint(baseUrl, hasKey) {
+  if (!hasKey) {
+    return null;
+  }
+  let url = null;
+  try {
+    url = new URL(String(baseUrl).trim());
+  } catch (err) {
+    // An address that does not parse is Test connection's problem to report;
+    // guessing at it here would be a warning about a server we cannot name.
+    return null;
+  }
+  if (url.protocol !== "http:") {
+    return null;
+  }
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "" || host === "127.0.0.1" || host.startsWith("127.") || LOOPBACK_HOSTS.includes(host)) {
+    return null;
+  }
+  return "key travels in cleartext to " + url.hostname + " - use https:// unless that server is your own machine";
+}
+
+// Combines a result line with the cleartext warning. A failed write outranks
+// the warning because it is the bigger fact, but both can be stated at once; a
+// line that only has the warning carries the amber `warn` class, not the red.
+export function resultLine(note, hint) {
+  if (!note) {
+    return hint ? { text: hint, className: "warn" } : null;
+  }
+  if (!hint) {
+    return note;
+  }
+  return { text: note.text + " · " + hint, className: note.className === "" ? "warn" : note.className };
+}
+
 function collect() {
   return saveArgs(
     field("f-base-url").value,
@@ -134,9 +183,13 @@ async function save() {
   // the API key, and the panel's rule is that the key never crosses to the page.
   // The keys here are camelCase because that struct asks for that spelling.
   const line = field("test-result");
-  const note = saveLine(saved);
-  line.className = note.className;
-  line.textContent = note.text;
+  // Warn about cleartext using the summary's own `apiKeySet`, which is what
+  // Rust actually holds, not what is typed in the box.
+  const note = resultLine(saveLine(saved), cleartextHint(saved.baseUrl, saved.apiKeySet === true));
+  if (note) {
+    line.className = note.className;
+    line.textContent = note.text;
+  }
   await load_current();
 }
 
@@ -159,6 +212,14 @@ async function test() {
   }
   if (out.max_context) {
     text = text + " · " + out.max_context + " context";
+  }
+  // The report has no address of its own, so the warning reads the box the test
+  // just went to, and the key flag is "typed now or already saved".
+  const typedKey = field("f-api-key").value.length > 0;
+  const hint = cleartextHint(field("f-base-url").value, typedKey || savedKeySet);
+  if (hint) {
+    line.className = "warn";
+    text = text + " · " + hint;
   }
   line.textContent = text;
 }
@@ -183,7 +244,10 @@ if (typeof window !== "undefined") {
         // window to its new spot, whatever the write did.
         load_current();
         // A write that failed is a fact the human needs: the card moved, but
-        // the new spot is lost on the next start.
+        // the new spot is lost on the next start. A click that saved stays
+        // silent, and the cleartext warning is not shown here - Save and Test
+        // connection are the moments the key is committed or sent, so that is
+        // where it belongs.
         const note = moveLine(ack);
         if (note) {
           const line = field("test-result");

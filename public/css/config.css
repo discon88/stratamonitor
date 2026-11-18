@@ -149,3 +149,8 @@ input[type="checkbox"] {
 
 #test-result.good { color: var(--accent); }
 #test-result.bad { color: var(--danger); }
+
+// A warning is not an error: it is the page's own amber warning-text token (the
+// spelling meant to be read on a dark panel), used for the cleartext notice so
+// it reads as "this works, but read me" rather than "something failed".
+#test-result.warn { color: var(--warn-text); }
