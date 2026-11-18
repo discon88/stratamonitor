@@ -28,13 +28,13 @@ Five readouts, nothing else:
 
 | Line | Shows |
 | --- | --- |
-| Model | the state word (`Idle` / `Reading` / `Thinking` / `Generating` / `Queued` / `Unloaded`) plus the server's own status line |
+| Model | the state word (`Idle` / `Reading` / `Generating` / `Queued` / `Unloaded`) plus the server's own status line |
 | Progress | tokens read / total, and the percentage |
 | Speed | `Decode` and `Prefill` in tok/s |
 | Load | GPU % and CPU % |
 | Context | percentage used and the total window (e.g. `38% 256K`) |
 
-A rate that has not changed for five seconds displays as `0` — while the model is idle the number on screen is a fallback from the last request, and showing it as if it were live reads as a lie. Three consecutive failed polls turn the state line into `Server not reachable`.
+A rate that has not changed for five seconds displays as `0` — while the model is idle the number on screen is a fallback from the last request, and showing it as if it were live reads as a lie. Three consecutive failed polls put `Server not reachable` on the error line under the readouts; the numbers themselves stay, because a failed poll keeps the last good view.
 
 ## Controls
 
@@ -47,7 +47,9 @@ A rate that has not changed for five seconds displays as `0` — while the model
 
 With no saved config the app writes its defaults and opens the settings window once, so a new machine only has to point it at the right address. Later launches start closed.
 
-Defaults: `http://127.0.0.1:8080`, no API key, poll every 1000 ms, 12 px margin, scale 1.0, position `top-right`, always-on-top on.
+Defaults: `http://127.0.0.1:8080`, no API key, poll every 1000 ms, 12 px margin, position `top-right`, always-on-top on.
+
+`scale` is written to the file and read back, but nothing in the app uses it yet.
 
 ## Settings file
 
@@ -59,7 +61,7 @@ C:\Users\<you>\AppData\Roaming\com.strata.monitor\config.json
 
 The folder is named after the app identifier in `src-tauri/tauri.conf.json` (`com.strata.monitor`), so changing that identifier changes where the settings are saved.
 
-A missing or corrupt file is not an error — the app falls back to the defaults above, so a bad file cannot brick the HUD. `poll_ms`, `margin_px` and `scale` are no longer offered in the settings window; they keep whatever the file holds and can still be edited there.
+A missing or corrupt file is not an error — the app falls back to the defaults above, so a bad file cannot brick the HUD. `poll_ms`, `margin_px` and `scale` are no longer offered in the settings window; they keep whatever the file holds and can still be edited there. A `poll_ms` below 250 is raised to 250 when the HUD reads it, so an edited file cannot turn the card into a poll every millisecond.
 
 The API key is stored in that file and sent only to your own server. It is never handed to the webview: the HUD asks Rust for `apiKeySet`, a boolean, and nothing more.
 

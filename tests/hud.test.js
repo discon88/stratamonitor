@@ -1,4 +1,5 @@
 import assert from "node:assert";
+import { test } from "node:test";
 import "../public/js/view.js";
 import { applyPayload, menuItems, pinClasses, staleRate, isStale } from "../public/js/hud.js";
 
@@ -26,7 +27,7 @@ const dead = {
 };
 
 // A good payload writes every readout.
-{
+test("a good payload writes every readout", () => {
   const out = applyPayload(null, good);
   assert.equal(out.strings["state-word"], "Generating");
   assert.equal(out.strings["state-status"], "Answering");
@@ -36,43 +37,47 @@ const dead = {
   assert.equal(out.strings["gpu-load"], "40");
   assert.equal(out.strings["ctx-detail"], "32K");
   assert.equal(out.errorText, null);
+  // The tone is view.js's state -> tone mapping, which hud.js reads from the
+  // formatted view instead of keeping its own map: hud.css is the only place a
+  // colour is decided.
+  assert.equal(out.tone, "generating");
   // Neither the progress line nor the context line has a bar any more, and the
   // payload carries no bars object at all: the percentage and the counts are
   // the readout, and there is nothing to size.
   assert.equal(out.bars, undefined);
-}
+});
 
 // A payload that carries an error keeps the numbers that were already on
 // screen: one blip must not blank the readouts.
-{
+test("a payload with an error keeps the numbers already on screen", () => {
   const first = applyPayload(null, good);
   const out = applyPayload(first.strings, dead);
   assert.equal(out.strings["speed-decode"], "38.2");
   assert.equal(out.strings["gpu-load"], "40");
   assert.equal(out.strings["ctx-detail"], "32K");
   assert.equal(out.errorText, "Server not reachable");
-}
+});
 
 // The same 5-second clock drives both stale readouts: a rate shows 0, and the
 // progress line shows the summary of the last request instead of counts.
-{
+test("the same 5-second clock drives both stale readouts", () => {
   assert.equal(isStale("24.3", "24.3", 5000), true);
   assert.equal(isStale("24.3", "24.3", 4900), false);
   assert.equal(isStale("24.3", "30.1", 99999), false);
-}
+});
 
 // A rate that has not moved for 5 seconds is not a live rate: the fallback
 // number from the last request must not read as if the model were still
 // working, so it displays as 0 until the value changes.
-{
+test("a rate that has not moved for 5 seconds displays as 0", () => {
   assert.equal(staleRate("24.3", "24.3", 5000), "0");
   assert.equal(staleRate("24.3", "24.3", 4900), "24.3");
   assert.equal(staleRate("24.3", "30.1", 99999), "24.3");
-}
+});
 
 // The right-click menu has exactly two items now: the always-on-top control is
 // the bar on the card itself, so it is no longer offered here.
-{
+test("the right-click menu has exactly two items", () => {
   const items = menuItems();
   assert.equal(items.length, 2);
   assert.equal(items[0].label, "Close");
@@ -80,12 +85,12 @@ const dead = {
   assert.equal(items[1].label, "Config");
   assert.equal(items[1].command, "open_config_window");
   assert.equal(items.some(function (item) { return item.command === "toggle_always_on_top"; }), false, "the pin is not in the menu any more");
-}
+});
 
 // The bar on the card is the always-on-top control: filled accent when the pin
 // is active, and the muted label colour when it is not, so the control is
 // still visible when off.
-{
+test("the pin bar class follows the pin state", () => {
   assert.equal(pinClasses(true), "pin-on");
   assert.equal(pinClasses(false), "pin-off");
-}
+});

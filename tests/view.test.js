@@ -1,4 +1,5 @@
 import assert from "node:assert";
+import { test } from "node:test";
 import { formatView } from "../public/js/view.js";
 
 // Fixtures are HudView JSON as hudview.rs serializes it: `state` is lowercase,
@@ -52,36 +53,36 @@ const editing = {
   error: null,
 };
 
-{
+test("a tool-call phase shows only what follows the colon", () => {
   const view = formatView(editing);
   assert.equal(view.status, "edit", "only what follows the colon");
   assert.equal(view.state.word, "Generating");
-}
+});
 
-{
+test("a phase with no colon is shown in full", () => {
   const plain = Object.assign({}, editing);
   plain.phase = "thinking";
   const view = formatView(plain);
   assert.equal(view.status, "thinking", "no colon, the whole phase");
-}
+});
 
 // The progress line shows counts and the unit `tok`, **no percentage** (the
 // percentage made the row wrap onto the next line), and never a rate. When
 // nothing has changed for 5 seconds the line is replaced by the summary of
 // the last request instead.
-{
+test("the progress line shows counts, the unit, and no rate", () => {
   const view = formatView(reading);
   assert.equal(view.progress.detail, "1,204 / 8,192 tok");
   assert.equal(view.progress.detail.includes("tok/s"), false);
   assert.equal(view.progress.pct, "15%");
   assert.equal(view.progress.stale, "last 1,204 tok", "no rate to report while reading");
-}
+});
 
-{
+test("a stale progress line summarises the last request", () => {
   const view = formatView(generating);
   assert.equal(view.progress.detail, "512 / 2,048 tok");
   assert.equal(view.progress.stale, "last 512 tok at 38.2 tok/s");
-}
+});
 
 // The model line shows the state word **and** the human status line, in
 // upstream's wording: a waiting model, a reading prompt, an answering one.
@@ -95,53 +96,53 @@ const waiting = {
   error: null,
 };
 
-{
+test("a reading model reads as Reading prompt", () => {
   const view = formatView(reading);
   assert.equal(view.status, "Reading prompt");
-}
+});
 
-{
+test("an answering model reads as Answering", () => {
   const view = formatView(generating);
   assert.equal(view.status, "Answering");
-}
+});
 
-{
+test("an unloaded model reads as Model not loaded", () => {
   const view = formatView(sparse);
   assert.equal(view.status, "Model not loaded");
-}
+});
 
-{
+test("a waiting model reads as Waiting for request", () => {
   const view = formatView(waiting);
   assert.equal(view.status, "Waiting for request");
   assert.equal(view.state.word, "Idle");
-}
+});
 
 // Rates render with one decimal and thousands separators; the unit is added by
 // the stylesheet, not baked into the string.
-{
+test("rates get one decimal and thousands separators", () => {
   const view = formatView(generating);
   assert.equal(view.speed.decode, "38.2");
   assert.equal(view.speed.prefill, "1,620");
-}
+});
 
 // Load is a whole percent per card, and each card gets its own entry.
-{
+test("load is a whole percent per card, and each card gets its own entry", () => {
   const view = formatView(reading);
   assert.equal(view.load.gpu, "40");
   assert.equal(view.load.perGpu, "GPU 0 40% · GPU 1 75%");
-}
+});
 
 // Context shows the percentage and the **total** window only (the human asked
 // for just those two), and the window shortens by a binary K the way upstream
 // does.
-{
+test("context shows the percentage and the total window only", () => {
   const view = formatView(reading);
   assert.equal(view.context.detail, "32K");
   assert.equal(view.context.pct, "38%");
-}
+});
 
 // Missing values are "–"; a zero context window must not divide.
-{
+test("missing values are a dash, and a zero window does not divide", () => {
   const view = formatView(sparse);
   assert.equal(view.load.gpu, "–");
   assert.equal(view.load.cpu, "–");
@@ -149,11 +150,11 @@ const waiting = {
   assert.equal(view.context.pct, "–");
   assert.equal(view.progress.detail, "–");
   assert.equal(view.speed.decode, "–");
-}
+});
 
 // The state word is capitalized for display, and the tone names the state so
 // hud.css can colour it with the page's badge/pill tokens.
-{
+test("the state word is capitalised and the tone names the state", () => {
   const idle = formatView({ ...reading, state: "idle" });
   assert.equal(idle.state.word, "Idle");
   assert.equal(idle.state.tone, "idle");
@@ -169,4 +170,4 @@ const waiting = {
   const unloaded = formatView(sparse);
   assert.equal(unloaded.state.word, "Unloaded");
   assert.equal(unloaded.state.tone, "muted");
-}
+});
