@@ -36,9 +36,10 @@ const dead = {
   assert.equal(out.strings["gpu-load"], "40");
   assert.equal(out.strings["ctx-detail"], "32K");
   assert.equal(out.errorText, null);
-  // Neither the progress line nor the context line has a bar any more: the
-  // percentage and the counts are the readout.
-  assert.equal(Object.keys(out.bars).length, 0);
+  // Neither the progress line nor the context line has a bar any more, and the
+  // payload carries no bars object at all: the percentage and the counts are
+  // the readout, and there is nothing to size.
+  assert.equal(out.bars, undefined);
 }
 
 // A payload that carries an error keeps the numbers that were already on

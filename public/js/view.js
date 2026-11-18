@@ -56,9 +56,9 @@ function perGpuStr(pairs) {
   return parts.join(" · ");
 }
 
-// The state word is capitalised for display; the tone drives the dimming, so
-// idle is the quiet case and queued/generating demand attention.
-const TONES = { idle: "dim", reading: "warn", generating: "warn", queued: "warn", unloaded: "muted" };
+// The state word is capitalised for display; the tone names the state, and the
+// colour for it lives in hud.css, taken from upstream's badge and pill tokens.
+const TONES = { idle: "idle", reading: "reading", generating: "generating", queued: "queued", unloaded: "muted" };
 
 // The human status line shown next to the state word, in upstream's wording.
 const PHRASES = {

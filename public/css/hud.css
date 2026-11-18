@@ -43,7 +43,9 @@ body {
    than a number. */
 .value, b { font-size: 17px; line-height: 1.15; font-weight: 600; }
 #state-word { font-size: 18px; line-height: 1.15; font-weight: 600; margin-right: 12px; }
-#state-status { font-size: 12px; color: var(--ink); }
+/* The status line beside the word is the pill's sentence on the page, which
+   is `--ink-soft` whatever the state is. */
+#state-status { font-size: 12px; color: var(--ink-soft); }
 
 /* Progress and context data read exactly like the Speed and Load numbers:
    same size, same weight, same colour. */
@@ -68,18 +70,27 @@ body {
   margin-right: 10px;
 }
 
-/* tone classes, driven by view.js's tone */
-.tone-dim { color: var(--ink-muted); opacity: 0.55; }
+/* tone classes, driven by view.js's tone. The names are the states; the
+   colours are the page's: a badge's text uses its `--*-text` token, and the
+   pill's text (`--ink-soft`) is what an idle line reads as. Queued is amber
+   here, as on the page, not the green of a generating model. */
+.tone-idle { color: var(--ink-soft); }
+.tone-reading { color: var(--info-text); }
+.tone-generating { color: var(--accent-text); }
+.tone-queued { color: var(--warn-text); }
 .tone-muted { color: var(--ink-muted); }
-.tone-warn { color: var(--warn); }
 
+/* The dot uses the fill token, with the tint halo the page's pill puts round
+   an active state. */
 #state-dot {
   width: 8px; height: 8px; border-radius: 50%;
-  background: var(--accent);
+  background: var(--ink-muted);
   margin-left: 6px;
 }
-#state-dot.tone-dim { background: var(--line); }
-#state-dot.tone-warn { background: var(--warn); }
+#state-dot.tone-idle { background: var(--ink-muted); }
+#state-dot.tone-reading { background: var(--info); box-shadow: 0 0 0 3px var(--info-tint); }
+#state-dot.tone-generating { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
+#state-dot.tone-queued { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-tint); }
 #state-dot.tone-muted { background: var(--ink-muted); }
 
 /* No readout has a bar: progress and context are the counts and the
@@ -122,4 +133,4 @@ body {
 }
 .menu-item.on-top { color: var(--bg); background: var(--accent); border-color: var(--accent); }
 
-#error-line { font-size: 13px; color: var(--danger); }
+#error-line { font-size: 13px; color: var(--danger-text); }

@@ -1,7 +1,7 @@
 // hud.js — the HUD window's behaviour: it schedules the poll (Rust owns the
 // fetch and never hands the key to the webview), renders each payload through
 // view.js, keeps the previous numbers when a payload carries an error, and
-// answers a right-click with the three-item menu the human asked for.
+// answers a right-click with the two-item menu the human asked for.
 //
 // The pure parts (applyPayload, menuItems, pinClasses) are exported so
 // `node --test` can exercise them; the DOM/Tauri wiring only runs in the
@@ -18,10 +18,10 @@ export function pinClasses(active) {
   return active ? "pin-on" : "pin-off";
 }
 
-// One payload in, the strings and bar widths to write out. A payload that
-// carries an error keeps whatever numbers were already on screen: Rust already
-// sends the last good view, and this is the belt-and-braces half that keeps a
-// blip from blanking the readouts even if that changes.
+// One payload in, the strings to write out. A payload that carries an error
+// keeps whatever numbers were already on screen: Rust already sends the last
+// good view, and this is the belt-and-braces half that keeps a blip from
+// blanking the readouts even if that changes.
 // A rate that has not moved for this long is not a live rate: the fallback
 // number from the last request must not read as if the model were still
 // working, so a stale rate displays as 0 until the value changes.
@@ -48,25 +48,32 @@ export function applyPayload(previous, payload) {
     "ctx-pct": view.context.pct,
     "ctx-detail": view.context.detail,
   };
-  // No readout has a bar any more: progress and context are the percentage
-  // and the counts, so there is nothing to size.
-  const bars = {};
-
+  // No readout has a bar any more: progress and context are the percentage and
+  // the counts, so there is nothing to size and nothing to carry along.
   const failed = payload.error !== null && payload.error !== undefined;
   if (failed && previous) {
     for (const id in previous) {
       strings[id] = previous[id];
     }
-    for (const id in bars) {
-      bars[id] = "–";
-    }
   }
 
-  return { strings: strings, bars: bars, progressStale: view.progress.stale, errorText: view.error === null ? null : view.error.text };
+  return { strings: strings, progressStale: view.progress.stale, errorText: view.error === null ? null : view.error.text };
 }
 
 if (typeof window !== "undefined") {
   const tauri = window.__TAURI__;
+  // The nine readouts, the dot, the pin button and the error line are looked up
+  // once. The old code called getElementById for every readout on every tick;
+  // a 2 s transparent always-on-top card does not need nine lookups a second.
+  const IDS = ["state-word", "state-status", "progress-detail", "speed-decode", "speed-prefill", "gpu-load", "cpu-load", "ctx-pct", "ctx-detail"];
+  const nodes = {};
+  IDS.forEach(function (id) {
+    nodes[id] = document.getElementById(id);
+  });
+  const dotNode = document.getElementById("state-dot");
+  const lineNode = document.getElementById("error-line");
+  const pinButton = document.getElementById("pin-button");
+
   let lastStrings = null;
   let lastDecodeValue = null;
   let lastProgressValue = null;
@@ -77,10 +84,20 @@ if (typeof window !== "undefined") {
     return new Promise(function (done) { setTimeout(done, ms); });
   }
 
+  // Only a value that actually changed is written. Setting textContent to the
+  // same string still dirties the text layer of a frameless, transparent,
+  // topmost window, which repaints every second for nothing.
   function write(id, value) {
-    const node = document.getElementById(id);
-    if (node) {
+    const node = nodes[id];
+    if (node && node.textContent !== value) {
       node.textContent = value;
+    }
+  }
+
+  function showError(text) {
+    if (lineNode) {
+      lineNode.hidden = false;
+      lineNode.textContent = text;
     }
   }
 
@@ -109,33 +126,36 @@ if (typeof window !== "undefined") {
     for (const id in out.strings) {
       write(id, out.strings[id]);
     }
-    for (const id in out.bars) {
-      barWidth(id, out.bars[id]);
+
+    // Both halves of the state line carry the page's own state colour, and the
+    // class is written only when the tone changes.
+    const tone = "tone-" + payloadTone(payload);
+    if (nodes["state-word"] && nodes["state-word"].className !== tone) {
+      nodes["state-word"].className = tone;
+    }
+    if (dotNode && dotNode.className !== tone) {
+      dotNode.className = tone;
     }
 
-    const word = document.getElementById("state-word");
-    const dot = document.getElementById("state-dot");
-    if (word) {
-      word.className = "tone-" + payloadTone(payload);
-    }
-    if (dot) {
-      dot.className = "tone-" + payloadTone(payload);
-    }
-
-    const line = document.getElementById("error-line");
-    if (line) {
+    if (lineNode) {
       if (out.errorText === null) {
-        line.hidden = true;
-        line.textContent = "";
+        if (!lineNode.hidden) {
+          lineNode.hidden = true;
+        }
+        if (lineNode.textContent !== "") {
+          lineNode.textContent = "";
+        }
       } else {
-        line.hidden = false;
-        line.textContent = out.errorText;
+        lineNode.hidden = false;
+        if (lineNode.textContent !== out.errorText) {
+          lineNode.textContent = out.errorText;
+        }
       }
     }
   }
 
   function payloadTone(payload) {
-    const tones = { idle: "dim", reading: "warn", generating: "warn", queued: "warn", unloaded: "muted" };
+    const tones = { idle: "idle", reading: "reading", generating: "generating", queued: "queued", unloaded: "muted" };
     return tones[payload.state] || "muted";
   }
 
@@ -144,41 +164,47 @@ if (typeof window !== "undefined") {
   async function tick() {
     const state = await tauri.core.invoke("get_hud_state");
     const every = state.pollMs || 1000;
-    const button = document.getElementById("pin-button");
-    if (button) {
-      button.className = pinClasses(state.alwaysOnTop === true);
-    }
-    // The view is rendered from the poll's return value. The event path would
-    // need `event:allow-listen` in the capabilities, and a refused listen left
-    // every readout untouched - which is what the card looked like then.
-    tauri.core.invoke("poll_now").then(function (view) {
-      render(view);
-    }).catch(function (err) {
-      const line = document.getElementById("error-line");
-      if (line) {
-        line.hidden = false;
-        line.textContent = "poll error: " + String(err);
+    if (pinButton) {
+      const wanted = pinClasses(state.alwaysOnTop === true);
+      if (pinButton.className !== wanted) {
+        pinButton.className = wanted;
       }
-    });
+    }
+    // The view is rendered from the poll's return value. The emit path is gone:
+    // the `metrics-update` listener is refused by the capabilities grant, so the
+    // emit was a serialized view per second that nobody read.
+    //
+    // Awaited, not fire-and-forget: a poll that outlives the interval now queues
+    // behind the in-flight one instead of stacking a request every second.
+    try {
+      const view = await tauri.core.invoke("poll_now");
+      render(view);
+    } catch (err) {
+      showError("poll error: " + String(err));
+    }
     return every;
   }
 
+  // Nothing is visible while the window is hidden (the Done button hides the
+  // HUD, and closing it destroys the webview), so nothing is fetched then; the
+  // readouts refresh as soon as the window is shown again.
+  const HIDDEN_POLL_MS = 2000;
+
   async function loop() {
     while (true) {
-      const every = await tick();
-      await sleep(every);
+      let every = 1000;
+      if (!document.hidden) {
+        try {
+          every = await tick();
+        } catch (err) {
+          // A refused or panicked get_hud_state would otherwise kill the loop.
+          showError("state error: " + String(err));
+        }
+      }
+      await sleep(document.hidden ? HIDDEN_POLL_MS : every);
     }
   }
 
-  // Left in place for a future second window that would rather subscribe than
-  // poll; unused today, and harmless.
-  async function watch() {
-    await tauri.event.listen("metrics-update", function (payload) {
-      render(payload);
-    });
-  }
-
-  const pinButton = document.getElementById("pin-button");
   if (pinButton) {
     // The bar on the card is the toggle: clicking it flips always-on-top. The
     // command returns the new state, so the bar's colour shows the result
@@ -190,20 +216,24 @@ if (typeof window !== "undefined") {
       }).catch(function (err) {
         // A refused or panicked invoke is otherwise invisible; put it where it
         // can be read (same pattern as the poll and menu errors).
-        const line = document.getElementById("error-line");
-        if (line) {
-          line.hidden = false;
-          line.textContent = "pin error: " + String(err);
-        }
+        showError("pin error: " + String(err));
       });
     });
   }
 
   let currentMenu = null;
+  let menuTimer = null;
 
   function hideMenu(menu) {
     if (menu === currentMenu) {
       currentMenu = null;
+      // A menu replaced on every right-click would leave one pending four-second
+      // timer per click. The timer belongs to the current menu, so it goes with
+      // the menu.
+      if (menuTimer !== null) {
+        clearTimeout(menuTimer);
+        menuTimer = null;
+      }
     }
     menu.remove();
   }
@@ -234,11 +264,7 @@ if (typeof window !== "undefined") {
         tauri.core.invoke(item.command).catch(function (err) {
           // A command that panics or is refused comes back here. Put the text
           // on the HUD so it can be read, instead of swallowing it.
-          const line = document.getElementById("error-line");
-          if (line) {
-            line.hidden = false;
-            line.textContent = "menu error: " + String(err);
-          }
+          showError("menu error: " + String(err));
         });
         hideMenu(menu);
       });
@@ -248,7 +274,7 @@ if (typeof window !== "undefined") {
     document.body.appendChild(menu);
     currentMenu = menu;
 
-    setTimeout(function () {
+    menuTimer = setTimeout(function () {
       if (currentMenu === menu) {
         hideMenu(menu);
       }

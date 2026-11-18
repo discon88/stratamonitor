@@ -12,6 +12,20 @@
   --info: #3aa9ff;
   --warn: #f5b53d;
   --danger: #ff5a6e;
+
+  /* Added from the same dark block upstream ships, because the state colours
+     the HUD needs are the ones the page paints its badges and pill with:
+     `--*-text` is the accent colour a badge uses for its **text** (the base
+     token is for fills and dots), and `--*-tint` is the halo behind a dot. */
+  --ink-soft: #c7cdd3;           /* .st-pill text */
+  --accent-text: #4ade80;        /* .st-badge--generating text */
+  --info-text: #7cc4ff;          /* .st-badge--reading text */
+  --warn-text: #f8c96a;          /* .st-badge--queued text */
+  --danger-text: #ff8a98;        /* .st-badge--error text */
+  --accent-tint: rgba(52, 211, 153, .12);
+  --info-tint: rgba(58, 169, 255, .12);
+  --warn-tint: rgba(245, 181, 61, .12);
+  --danger-tint: rgba(255, 90, 110, .12);
 }
 
 /* Outfit is upstream's font. The local copy is not vendored in this repo, so

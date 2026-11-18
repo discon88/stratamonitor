@@ -151,20 +151,20 @@ const waiting = {
   assert.equal(view.speed.decode, "–");
 }
 
-// The state word is capitalized for display, and the tone drives the dimming:
-// idle is the quiet case, queued and generating demand attention.
+// The state word is capitalized for display, and the tone names the state so
+// hud.css can colour it with the page's badge/pill tokens.
 {
   const idle = formatView({ ...reading, state: "idle" });
   assert.equal(idle.state.word, "Idle");
-  assert.equal(idle.state.tone, "dim");
+  assert.equal(idle.state.tone, "idle");
 
   const gen = formatView(generating);
   assert.equal(gen.state.word, "Generating");
-  assert.equal(gen.state.tone, "warn");
+  assert.equal(gen.state.tone, "generating");
 
   const queued = formatView({ ...reading, state: "queued" });
   assert.equal(queued.state.word, "Queued");
-  assert.equal(queued.state.tone, "warn");
+  assert.equal(queued.state.tone, "queued");
 
   const unloaded = formatView(sparse);
   assert.equal(unloaded.state.word, "Unloaded");
